@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 
 import websocket
 
+from src.storage.market_store import MarketStore
+
 
 SYMBOLS = [
     "btcusdt",
@@ -20,41 +22,53 @@ WS_URL = (
     f"?streams={STREAMS}"
 )
 
+STORE = MarketStore()
+
 
 def on_message(ws, message):
     try:
         payload = json.loads(message)
-
-        stream = payload.get("stream")
         data = payload.get("data", {})
 
         symbol = data.get("s")
         price = data.get("c")
         volume = data.get("v")
+        quote_volume = data.get("q")
         event_time = data.get("E")
 
-        timestamp = (
-            datetime.fromtimestamp(
-                event_time / 1000,
-                tz=timezone.utc,
-            )
-            if event_time
-            else datetime.now(timezone.utc)
+        if not symbol or price is None or event_time is None:
+            return
+
+        received_at = datetime.now(timezone.utc).isoformat()
+
+        STORE.insert_event(
+            symbol=symbol,
+            price=float(price),
+            volume_24h=float(volume) if volume is not None else None,
+            quote_volume_24h=(
+                float(quote_volume)
+                if quote_volume is not None
+                else None
+            ),
+            event_time_ms=int(event_time),
+            received_at_utc=received_at,
         )
 
         print(
-            f"{timestamp.isoformat()} | "
+            f"{received_at} | "
             f"{symbol} | "
             f"price={price} | "
-            f"volume={volume} | "
-            f"stream={stream}"
+            f"stored={STORE.count_events()}"
         )
 
     except json.JSONDecodeError:
-        print("Received non-JSON message")
+        print("Received invalid JSON")
+
+    except (TypeError, ValueError) as exc:
+        print(f"Invalid market event: {exc}")
 
     except Exception as exc:
-        print(f"Message processing error: {exc}")
+        print(f"Market event processing error: {exc}")
 
 
 def on_error(ws, error):
@@ -72,9 +86,12 @@ def on_close(ws, close_status_code, close_msg):
 def on_open(ws):
     print("=" * 70)
     print("Connected to Binance market data stream")
+    print("Persistent storage: data/market_data.db")
     print("Subscribed symbols:")
+
     for symbol in SYMBOLS:
         print(f"  - {symbol.upper()}")
+
     print("=" * 70)
 
 
@@ -96,6 +113,7 @@ def run():
 
         except KeyboardInterrupt:
             print("\nStopping market data ingestion...")
+            STORE.close()
             break
 
         except Exception as exc:
