@@ -1,0 +1,29 @@
+{
+    "CatBoost_regression": {
+        "target": "future_return_5m",
+        "best_value": 0.001425169012927465,
+        "best_params": {
+            "iterations": 425,
+            "depth": 5,
+            "learning_rate": 0.026959743909391057,
+            "l2_leaf_reg": 4.109669474651826,
+            "random_strength": 1.9752914677327187,
+            "bagging_temperature": 2.906925624530661
+        }
+    },
+    "LightGBM_classification": {
+        "target": "target_direction_5m",
+        "best_macro_f1": 0.39200667025542857,
+        "best_params": {
+            "n_estimators": 393,
+            "learning_rate": 0.010336245845523069,
+            "num_leaves": 32,
+            "max_depth": 11,
+            "min_child_samples": 11,
+            "subsample": 0.7956949411279022,
+            "colsample_bytree": 0.6719810794263651,
+            "reg_alpha": 3.145482744647803,
+            "reg_lambda": 0.011465168833811051
+        }
+    }
+}

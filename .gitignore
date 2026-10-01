@@ -1,3 +1,11 @@
 .venv/
 __pycache__
 data/
+mlflow.db
+mlflow.db-journal
+mlruns/
+# Generated CatBoost training artifacts
+catboost_info/
+
+# Large generated comparison report
+reports/v1_v2_target_comparison.csv

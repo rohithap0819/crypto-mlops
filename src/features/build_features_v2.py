@@ -32,7 +32,7 @@ SYMBOLS = [
     "XRPUSDT",
 ]
 
-VOLATILITY_MULTIPLIER = 0.5
+VOLATILITY_MULTIPLIER = 1.11803398875
 
 
 # ============================================================
@@ -709,6 +709,40 @@ def main():
     final_df = final_df.replace(
         [np.inf, -np.inf],
         np.nan,
+    )
+
+# Columns that must contain valid values before a row
+# can be used for model training.
+    excluded_columns = {
+        "open_time",
+        "symbol",
+        "next_return_1m",
+        "future_return_5m",
+        "target_direction_5m",
+    }
+
+    model_feature_columns = [
+        column
+        for column in final_df.columns
+        if column not in excluded_columns
+        and pd.api.types.is_numeric_dtype(
+            final_df[column]
+        )
+    ]
+
+    required_columns = (
+        model_feature_columns
+        + [
+            "next_return_1m",
+            "future_return_5m",
+            "target_direction_5m",
+        ]
+    )
+
+    # Remove indicator warm-up rows and rows without
+    # a valid future target.
+    final_df = final_df.dropna(
+        subset=required_columns
     )
 
     final_df = (

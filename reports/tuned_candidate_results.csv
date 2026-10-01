@@ -1,0 +1,4 @@
+task,target,model,training_rows,validation_rows,rmse,mae,r2,macro_f1,accuracy
+regression,next_return_1m,CatBoost,1839186,394053,0.0006506629571923492,0.0004153184889650263,-0.00011599589734578863,,
+regression,future_return_5m,CatBoost_Optuna,1839186,394053,0.0014259337854172572,0.0009366872383881878,-0.001021845923587561,,
+classification,target_direction_5m,LightGBM_Optuna,1839186,394053,,,,0.3922127042580967,0.4008267923350412

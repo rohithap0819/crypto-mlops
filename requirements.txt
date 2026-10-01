@@ -24,3 +24,7 @@ tzdata==2026.4
 urllib3==2.8.0
 websocket-client==1.9.2
 xgboost==3.4.1
+scikit-learn 
+mlflow 
+optuna
+torch==2.14.0+cpu
