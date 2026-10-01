@@ -1,0 +1,32 @@
+{
+  "task": "binary_5m_direction",
+  "target": "future_return_5m",
+  "target_definition": {
+    "UP": "future_return_5m > 0",
+    "DOWN": "future_return_5m < 0",
+    "zero_returns_removed": true
+  },
+  "train_rows_used": 2202740,
+  "test_rows_used": 386564,
+  "feature_count": 66,
+  "v2_feature_count": 61,
+  "symbol_feature_count": 5,
+  "model": "CatBoostClassifier",
+  "model_parameters": {
+    "iterations": 300,
+    "depth": 8,
+    "learning_rate": 0.05,
+    "loss_function": "Logloss",
+    "auto_class_weights": "Balanced",
+    "random_seed": 42,
+    "thread_count": -1,
+    "verbose": false
+  },
+  "test_accuracy": 0.5155705135501495,
+  "test_macro_f1": 0.5155606419519636,
+  "baseline_accuracy": 0.5093955981415755,
+  "baseline_macro_f1": 0.509356154167967,
+  "accuracy_improvement": 0.0061749154085739555,
+  "macro_f1_improvement": 0.006204487783996626,
+  "model_path": "models\\final\\binary_direction_catboost_v1.cbm"
+}
