@@ -1,0 +1,3 @@
+target_variant,classes,training_rows,validation_rows,macro_f1,accuracy,baseline_macro_f1,baseline_accuracy
+3_class_volatility_threshold,3,1839186,394053,0.3935939673405861,0.4033924370579592,,
+2_class_pure_direction,2,1816748,385992,0.5225676195722588,0.5226248212398185,0.33508007627788716,0.5039404961760866
