@@ -1,0 +1,24 @@
+{
+  "model": "BinaryGRU",
+  "test_sequences": 382659,
+  "accuracy": 0.5154328004829365,
+  "macro_f1": 0.5153457973776809,
+  "checkpoint": "C:\\Users\\RohithAP\\Desktop\\crypto-mlops\\models\\binary_sequence_v1\\gru_binary_best.pt",
+  "training_note": "Checkpoint was trained on the 500k-sample binary sequence benchmark, not the full train+validation set.",
+  "sequence_length": 60,
+  "feature_count": 61,
+  "symbols": [
+    "BNBUSDT",
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT",
+    "XRPUSDT"
+  ],
+  "symbol_counts": {
+    "BNBUSDT": 77510,
+    "BTCUSDT": 77596,
+    "ETHUSDT": 77884,
+    "SOLUSDT": 74681,
+    "XRPUSDT": 74988
+  }
+}
