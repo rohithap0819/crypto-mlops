@@ -1,0 +1,8 @@
+{
+  "catboost_weight": 0.55,
+  "gru_weight": 0.45,
+  "matched_test_rows": 382659,
+  "target_agreement": 1.0,
+  "note": "Weights were selected on validation and frozen before this test evaluation.",
+  "test_usage_note": "The test set has previously been used for individual CatBoost and GRU evaluation, so this is a final comparative evaluation rather than a pristine untouched holdout."
+}
