@@ -1,0 +1,16 @@
+{
+  "catboost_weight": 0.55,
+  "gru_weight": 0.45,
+  "confidence_threshold": 0.55,
+  "matched_rows": 382659,
+  "filtered_rows": 42491,
+  "coverage": 0.11104142330377699,
+  "full_ensemble_accuracy": 0.5164284650302228,
+  "full_ensemble_macro_f1": 0.5164284205923888,
+  "filtered_accuracy": 0.5393142077145748,
+  "filtered_macro_f1": 0.530968409627426,
+  "accuracy_gain_vs_full": 0.02288574268435206,
+  "baseline_accuracy": 0.50953198539692,
+  "baseline_macro_f1": 0.5094964069448159,
+  "note": "The 0.55 confidence threshold was selected on validation and frozen before this test evaluation."
+}

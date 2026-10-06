@@ -1,0 +1,19 @@
+{
+  "ensemble_weights": {
+    "catboost": 0.55,
+    "gru": 0.45
+  },
+  "full_validation_accuracy": 0.5253614890538304,
+  "full_validation_macro_f1": 0.5253555342085434,
+  "thresholds": [
+    0.5,
+    0.55,
+    0.6,
+    0.65,
+    0.7,
+    0.75,
+    0.8
+  ],
+  "note": "Confidence analysis uses validation predictions only.",
+  "definition": "confidence = max(P(UP), P(DOWN))"
+}
