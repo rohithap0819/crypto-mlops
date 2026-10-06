@@ -1,0 +1,28 @@
+{
+  "validation_rows": 384244,
+  "target_agreement": 1.0,
+  "catboost": {
+    "accuracy": 0.5235813701710371,
+    "macro_f1": 0.5235499770920818
+  },
+  "gru": {
+    "accuracy": 0.5233835791840601,
+    "macro_f1": 0.5232903668420835
+  },
+  "complementarity": {
+    "both_correct": 160428,
+    "catboost_only_correct": 40755,
+    "gru_only_correct": 40679,
+    "both_wrong": 142382,
+    "disagreement_count": 81434,
+    "disagreement_rate": 0.2119330425458823
+  },
+  "probability_correlation": 0.7789579660073924,
+  "best_blend": {
+    "catboost_weight": 0.55,
+    "gru_weight": 0.45,
+    "accuracy": 0.525364091566817,
+    "macro_f1": 0.5253581280002134
+  },
+  "time_column": "open_time"
+}
