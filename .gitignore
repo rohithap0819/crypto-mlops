@@ -9,3 +9,10 @@ catboost_info/
 
 # Large generated comparison report
 reports/v1_v2_target_comparison.csv
+
+reports/binary_strategy_backtest_trades_v*.csv
+reports/binary_strategy_backtest_equity_v*.csv
+
+# Other generated large backtest/report artifacts
+reports/*trades*.csv
+reports/*equity*.csv
