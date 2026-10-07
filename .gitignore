@@ -16,3 +16,6 @@ reports/binary_strategy_backtest_equity_v*.csv
 # Other generated large backtest/report artifacts
 reports/*trades*.csv
 reports/*equity*.csv
+# Large generated backtest outputs
+reports/*trades*.csv
+reports/*equity*.csv
