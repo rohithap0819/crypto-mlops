@@ -19,3 +19,11 @@ reports/*equity*.csv
 # Large generated backtest outputs
 reports/*trades*.csv
 reports/*equity*.csv
+
+# Live inference outputs
+reports/live_*_predictions_v1.csv
+reports/live_*_predictions_v1.json
+
+# Live generated feature/sequence data
+data/processed/live_features_latest.parquet
+data/processed/live_sequence_v1/
