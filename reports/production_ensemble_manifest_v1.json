@@ -1,0 +1,65 @@
+{
+  "model_name": "Production_Ensemble_CatBoost55_GRU45_5m",
+  "mlflow_run_id": "b4180e13da59404fad4b4ccfd57a2281",
+  "created_at_utc": "2026-10-07T09:43:45.009147+00:00",
+  "task": "binary_5m_direction",
+  "forecast_horizon_minutes": 5,
+  "ensemble": {
+    "catboost_weight": 0.55,
+    "gru_weight": 0.45
+  },
+  "confidence": {
+    "threshold": 0.55,
+    "interpretation": "Selective prediction research setting; not a guarantee of correctness."
+  },
+  "features": {
+    "version": "v2",
+    "feature_count": 61,
+    "tabular_model_feature_count": 66,
+    "sequence_length": 60,
+    "num_symbols": 5,
+    "feature_file": "data\\processed\\feature_columns_v2.txt"
+  },
+  "catboost": {
+    "artifact": "models\\final\\binary_direction_catboost_v1.cbm",
+    "sha256": "5e2e1f19ca690b82de124d69c0506740f9314652a9ffa3d160e123fbcbed06e0",
+    "source_mlflow_run": "c9bb6545fc3448859fc620d9474e2d25",
+    "iterations": 300,
+    "depth": 8,
+    "learning_rate": 0.05,
+    "loss_function": "Logloss",
+    "auto_class_weights": "Balanced",
+    "random_seed": 42
+  },
+  "gru": {
+    "artifact": "models\\binary_sequence_v1\\gru_binary_best.pt",
+    "sha256": "9b685518baf77dc4c711c71e053fae7cc04cbfa68c6126377ae1c5a2fa2e6c15",
+    "source_mlflow_run": "4f1ca6ff7e7e43bba2b5f806d12df0ed",
+    "architecture": "BinaryGRU",
+    "input_features": 61,
+    "hidden_size": 64,
+    "num_layers": 1,
+    "dropout": 0.2,
+    "symbol_embedding_dim": 4
+  },
+  "evaluation": {
+    "validation_accuracy": 0.525361,
+    "validation_macro_f1": 0.525356,
+    "test_accuracy": 0.516428,
+    "test_macro_f1": 0.516428,
+    "confidence_055_test_accuracy": 0.539314,
+    "confidence_055_test_coverage": 0.110997
+  },
+  "governance": {
+    "model_stage": "production_candidate",
+    "deployment_status": "not_deployed",
+    "test_set_pristine": false,
+    "future_tuning_on_test_allowed": false,
+    "economic_edge_status": "insufficient_after_realistic_transaction_costs"
+  },
+  "source_control": {
+    "git_commit": "4768f2b2fe02606b47c92996c563d860e0075e7d",
+    "git_dirty": true,
+    "repository": "https://github.com/rohithap0819/crypto-mlops"
+  }
+}
