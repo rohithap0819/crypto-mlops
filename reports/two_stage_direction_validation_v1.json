@@ -1,0 +1,17 @@
+{
+  "event_threshold": 0.0015,
+  "event_probability_threshold": 0.5,
+  "stage_a_validation_accuracy": 0.7578701342205236,
+  "stage_a_validation_macro_f1": 0.6498354685195498,
+  "stage_a_validation_precision": 0.38440852441951245,
+  "stage_a_validation_recall": 0.5583602839262464,
+  "stage_b_true_event_accuracy": 0.5198174359835916,
+  "stage_b_true_event_macro_f1": 0.5191670224462225,
+  "end_to_end_action_coverage": 0.26328691825718875,
+  "end_to_end_directional_accuracy": 0.5137977233515504,
+  "end_to_end_mean_action_return": 1.561311825013205e-05,
+  "end_to_end_median_action_return": 5.5083267539335345e-05,
+  "end_to_end_positive_action_rate": 0.5050747477084117,
+  "baseline_directional_accuracy_same_actions": 0.5233688999412043,
+  "baseline_mean_action_return_same_actions": 3.4374215786984364e-05
+}
