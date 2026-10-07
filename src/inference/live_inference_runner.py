@@ -114,6 +114,17 @@ PIPELINE_COMMANDS = [
 ]
 
 
+MONITOR_COMMAND = [
+    str(PYTHON),
+    str(
+        ROOT
+        / "src"
+        / "monitoring"
+        / "monitor_live.py"
+    ),
+]
+
+
 # ============================================================
 # DATABASE
 # ============================================================
@@ -717,6 +728,23 @@ def main() -> None:
                         ensemble,
                         latency_ms,
                     )
+
+                    # --------------------------------------------------------
+                    # Run production monitoring AFTER predictions are stored.
+                    # Monitoring failure must not cause the same inference
+                    # cycle to be retrained/re-run.
+                    # --------------------------------------------------------
+
+                    try:
+                        run_command(
+                            MONITOR_COMMAND
+                        )   
+                    except Exception:
+                        print(
+                            "Monitoring cycle failed. "
+                            "Prediction data has already been stored.",
+                            file=sys.stderr,
+                        )
 
                     processed_timestamp = (
                         latest_timestamp
