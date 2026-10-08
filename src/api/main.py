@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -8,6 +10,13 @@ import pandas as pd
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
+from prometheus_client import (
+    CONTENT_TYPE_LATEST,
+    Gauge,
+    generate_latest,
+)
+from fastapi.responses import Response
+
 
 # ============================================================
 # PATHS
@@ -15,10 +24,15 @@ from fastapi.middleware.cors import CORSMiddleware
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-DATABASE_PATH = (
-    PROJECT_ROOT
-    / "data"
-    / "crypto_live.db"
+DATABASE_PATH = Path(
+    os.getenv(
+        "CRYPTO_DB_PATH",
+        str(
+            PROJECT_ROOT
+            / "data"
+            / "crypto_live.db"
+        ),
+    )
 )
 
 
@@ -45,6 +59,66 @@ MODEL_VERSION = (
     "catboost_v1_gru_v1_ensemble_v1"
 )
 
+
+
+# ============================================================
+# PROMETHEUS METRICS
+# ============================================================
+
+API_UP = Gauge(
+    "crypto_api_up",
+    "FastAPI application availability",
+)
+
+MARKET_ROWS = Gauge(
+    "crypto_market_rows",
+    "Number of market rows stored",
+)
+
+PREDICTION_ROWS = Gauge(
+    "crypto_prediction_rows",
+    "Number of prediction rows stored",
+)
+
+MONITORING_ROWS = Gauge(
+    "crypto_monitoring_rows",
+    "Number of monitoring metric rows stored",
+)
+
+MEAN_INFERENCE_LATENCY = Gauge(
+    "crypto_mean_inference_latency_ms",
+    "Latest mean inference latency in milliseconds",
+)
+
+MAX_INFERENCE_LATENCY = Gauge(
+    "crypto_max_inference_latency_ms",
+    "Latest maximum inference latency in milliseconds",
+)
+
+MEAN_CONFIDENCE = Gauge(
+    "crypto_mean_confidence",
+    "Latest mean prediction confidence",
+)
+
+FEATURE_DRIFT_GT3_PCT = Gauge(
+    "crypto_feature_abs_z_gt3_pct",
+    "Percentage of monitored features with absolute z-score greater than 3",
+)
+
+DATA_FRESHNESS = Gauge(
+    "crypto_data_freshness_status",
+    "Data freshness status: 1=PASS, 0=FAIL",
+)
+
+SEQUENCE_CONTINUITY = Gauge(
+    "crypto_sequence_continuity_status",
+    "Sequence continuity status: 1=PASS, 0=FAIL",
+)
+
+PREDICTION_COMPLETENESS = Gauge(
+    "crypto_prediction_completeness_status",
+    "Prediction completeness status: 1=PASS, 0=FAIL",
+)
 
 # ============================================================
 # FASTAPI
@@ -635,6 +709,102 @@ def load_latest_monitoring() -> dict:
 
     return result
 
+
+# ============================================================
+# PROMETHEUS
+# ============================================================
+
+@app.get("/metrics")
+def metrics():
+    connection = get_connection()
+
+    try:
+        market_count = connection.execute(
+            "SELECT COUNT(*) FROM market_klines_1m"
+        ).fetchone()[0]
+
+        prediction_count = connection.execute(
+            "SELECT COUNT(*) FROM live_predictions"
+        ).fetchone()[0]
+
+        monitoring_count = connection.execute(
+            "SELECT COUNT(*) FROM monitoring_metrics"
+        ).fetchone()[0]
+
+        latest_monitoring = connection.execute(
+            """
+            SELECT
+                mean_inference_latency_ms,
+                max_inference_latency_ms,
+                mean_confidence,
+                feature_abs_z_gt3_pct,
+                data_freshness_status,
+                sequence_continuity_status,
+                prediction_completeness_status
+            FROM monitoring_metrics
+            ORDER BY metric_time_ms DESC
+            LIMIT 1
+            """
+        ).fetchone()
+
+    finally:
+        connection.close()
+
+    API_UP.set(1)
+
+    MARKET_ROWS.set(market_count)
+    PREDICTION_ROWS.set(prediction_count)
+    MONITORING_ROWS.set(monitoring_count)
+
+    if latest_monitoring:
+
+        MEAN_INFERENCE_LATENCY.set(
+            latest_monitoring["mean_inference_latency_ms"]
+            or 0
+        )
+
+        MAX_INFERENCE_LATENCY.set(
+            latest_monitoring["max_inference_latency_ms"]
+            or 0
+        )
+
+        MEAN_CONFIDENCE.set(
+            latest_monitoring["mean_confidence"]
+            or 0
+        )
+
+        FEATURE_DRIFT_GT3_PCT.set(
+            latest_monitoring["feature_abs_z_gt3_pct"]
+            or 0
+        )
+
+        DATA_FRESHNESS.set(
+            1
+            if latest_monitoring["data_freshness_status"]
+            == "PASS"
+            else 0
+        )
+
+        SEQUENCE_CONTINUITY.set(
+            1
+            if latest_monitoring["sequence_continuity_status"]
+            == "PASS"
+            else 0
+        )
+
+        PREDICTION_COMPLETENESS.set(
+            1
+            if latest_monitoring[
+                "prediction_completeness_status"
+            ]
+            == "PASS"
+            else 0
+        )
+
+    return Response(
+        content=generate_latest(),
+        media_type=CONTENT_TYPE_LATEST,
+    )
 
 # ============================================================
 # ROOT

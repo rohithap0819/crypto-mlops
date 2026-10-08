@@ -1,0 +1,18 @@
+services:
+
+  - type: web
+
+    name: crypto-mlops-api
+
+    runtime: python
+
+    plan: free
+
+    buildCommand: pip install -r requirements-render.txt
+
+    startCommand: uvicorn src.api.main:app --host 0.0.0.0 --port $PORT
+
+    envVars:
+
+      - key: CRYPTO_DB_PATH
+        value: /opt/render/project/src/demo/crypto_demo.db
