@@ -27,3 +27,12 @@ reports/live_*_predictions_v1.json
 # Live generated feature/sequence data
 data/processed/live_features_latest.parquet
 data/processed/live_sequence_v1/
+
+
+
+reports/binary_ensemble*.csv
+reports/binary_ensemble*.json
+reports/binary_strategy_backtest*.csv
+reports/binary_strategy_backtest*.json
+reports/forecast_horizon_comparison*.csv
+reports/magnitude_hold_target_comparison*.csv

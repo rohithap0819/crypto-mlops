@@ -137,7 +137,22 @@ def fetch_recent_klines(
             f"{data}"
         )
 
-    return data
+    now_ms = int(time.time() * 1000)
+
+    # Binance may return the currently forming candle.
+    # Keep only candles whose close time has already passed.
+    closed_klines = [
+        kline
+        for kline in data
+        if int(kline[6]) < now_ms
+    ]
+
+    if not closed_klines:
+        raise RuntimeError(
+            f"No closed candles returned for {symbol}."
+        )
+
+    return closed_klines
 
 
 def insert_klines(

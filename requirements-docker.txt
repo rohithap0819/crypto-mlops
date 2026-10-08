@@ -1,0 +1,14 @@
+numpy
+pandas
+pyarrow
+scikit-learn
+joblib
+catboost
+torch
+websocket-client
+requests
+fastapi
+uvicorn[standard]
+streamlit
+plotly
+pydantic
