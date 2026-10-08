@@ -1,46 +1,10 @@
-from __future__ import annotations
-
-import html
-from typing import Any
+import os
+from datetime import datetime, timezone
 
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
 import requests
 import streamlit as st
-
-
-# ============================================================
-# CONFIGURATION
-# ============================================================
-
-API_BASE_URL = "http://127.0.0.1:8000"
-
-SYMBOLS = [
-    "BTCUSDT",
-    "ETHUSDT",
-    "SOLUSDT",
-    "BNBUSDT",
-    "XRPUSDT",
-]
-
-TIMEFRAMES = [
-    "1m",
-    "5m",
-    "1h",
-    "4h",
-]
-
-HISTORY_LIMITS = [
-    100,
-    500,
-    1000,
-    5000,
-]
-
-MODEL_VERSION_FALLBACK = (
-    "catboost_v1_gru_v1_ensemble_v1"
-)
 
 
 # ============================================================
@@ -56,827 +20,989 @@ st.set_page_config(
 
 
 # ============================================================
-# HELPERS
+# CONFIG
 # ============================================================
 
-def safe_float(
-    value: Any,
-    default: float = 0.0,
-) -> float:
-    try:
-        if value is None or pd.isna(value):
-            return default
-        return float(value)
-    except (TypeError, ValueError):
-        return default
+API_BASE_URL = os.getenv(
+    "CRYPTO_API_URL",
+    "http://127.0.0.1:8000",
+)
 
+SYMBOLS = [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT",
+    "BNBUSDT",
+    "XRPUSDT",
+]
 
-def format_price(value: Any) -> str:
-    value = safe_float(value)
-
-    if value >= 1000:
-        return f"${value:,.2f}"
-
-    if value >= 1:
-        return f"${value:,.4f}"
-
-    return f"${value:,.6f}"
-
-
-def format_volume(value: Any) -> str:
-    value = safe_float(value)
-
-    if value >= 1_000_000_000:
-        return f"{value / 1_000_000_000:.2f}B"
-
-    if value >= 1_000_000:
-        return f"{value / 1_000_000:.2f}M"
-
-    if value >= 1_000:
-        return f"{value / 1_000:.2f}K"
-
-    return f"{value:,.0f}"
-
-
-def signal_class(signal: Any) -> str:
-    signal = str(signal).upper()
-
-    if signal == "UP":
-        return "signal-up"
-
-    if signal == "DOWN":
-        return "signal-down"
-
-    return "signal-hold"
-
-
-def signal_text(signal: Any) -> str:
-    signal = str(signal).upper()
-
-    if signal == "UP":
-        return "↑ UP"
-
-    if signal == "DOWN":
-        return "↓ DOWN"
-
-    return "— HOLD"
-
-
-def to_dataframe(payload: Any) -> pd.DataFrame:
-
-    if isinstance(payload, list):
-        return pd.DataFrame(payload)
-
-    if isinstance(payload, dict):
-
-        if isinstance(
-            payload.get("data"),
-            list,
-        ):
-            return pd.DataFrame(
-                payload["data"]
-            )
-
-        if isinstance(
-            payload.get("results"),
-            list,
-        ):
-            return pd.DataFrame(
-                payload["results"]
-            )
-
-        return pd.DataFrame([payload])
-
-    return pd.DataFrame()
-
-
-def style_figure(
-    fig: go.Figure,
-    height: int = 420,
-) -> go.Figure:
-
-    fig.update_layout(
-        height=height,
-        margin=dict(
-            l=20,
-            r=20,
-            t=35,
-            b=20,
-        ),
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(
-            color="#cbd5e1",
-        ),
-        hovermode="x unified",
-    )
-
-    fig.update_xaxes(
-        gridcolor="rgba(148,163,184,.06)",
-        zeroline=False,
-    )
-
-    fig.update_yaxes(
-        gridcolor="rgba(148,163,184,.08)",
-        zeroline=False,
-    )
-
-    return fig
-
-
-def sync_symbol() -> None:
-    st.query_params["symbol"] = (
-        st.session_state["symbol_selector"]
-    )
+INTERVALS = {
+    "1m": "1m",
+    "5m": "5m",
+    "1h": "1h",
+    "4h": "4h",
+}
 
 
 # ============================================================
-# CSS
+# GLOBAL CSS
 # ============================================================
 
-st.html(
+st.markdown(
     """
     <style>
 
-    .stApp {
+    /* ========================================================
+       STREAMLIT CHROME
+       ======================================================== */
+
+    header[data-testid="stHeader"] {
+        display: none !important;
+    }
+
+    [data-testid="stToolbar"] {
+        display: none !important;
+    }
+
+    [data-testid="stDecoration"] {
+        display: none !important;
+    }
+
+    /* ========================================================
+       APPLICATION BACKGROUND
+       ======================================================== */
+
+    [data-testid="stAppViewContainer"] {
         background:
             radial-gradient(
-                circle at 90% 0%,
-                rgba(59,130,246,.10),
-                transparent 30%
+                circle at 80% 0%,
+                rgba(37, 99, 235, 0.08),
+                transparent 28%
             ),
             radial-gradient(
-                circle at 0% 20%,
-                rgba(139,92,246,.08),
-                transparent 27%
+                circle at 15% 20%,
+                rgba(14, 165, 233, 0.04),
+                transparent 25%
             ),
-            #080d18;
+            #070d18;
     }
 
-    .main .block-container {
-        max-width: 1500px;
-        padding-top: 1.5rem;
-        padding-bottom: 3rem;
+    [data-testid="stAppViewContainer"] > .main {
+        padding-top: 0 !important;
     }
 
-    section[data-testid="stSidebar"] {
-        background: #070c16;
-        border-right: 1px solid rgba(148,163,184,.08);
+    .block-container {
+        max-width: 100% !important;
+        padding-top: 0.65rem !important;
+        padding-bottom: 3rem !important;
     }
 
-    section[data-testid="stSidebar"] .block-container {
-        padding-top: 1.5rem;
+    /* ========================================================
+       SIDEBAR
+       ======================================================== */
+
+    [data-testid="stSidebar"] {
+        background:
+            linear-gradient(
+                180deg,
+                #050a13 0%,
+                #07101d 100%
+            );
+        border-right: 1px solid rgba(148, 163, 184, 0.09);
     }
 
-    /* ======================================================
-       HEADER
-       ====================================================== */
+    [data-testid="stSidebar"] > div:first-child {
+        padding-top: 1rem;
+    }
 
-    .app-header {
+    .sidebar-brand {
+        padding: 5px 0 0 0;
+    }
+
+    .sidebar-title {
+        color: #f8fafc;
+        font-size: 23px;
+        font-weight: 850;
+        letter-spacing: -0.7px;
+    }
+
+    .sidebar-subtitle {
+        color: #64748b;
+        font-size: 13px;
+        margin-top: 4px;
+    }
+
+    .sidebar-section {
+        color: #64748b;
+        font-size: 14px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        font-weight: 800;
+        margin-top: 37px;
+        margin-bottom: 11px;
+    }
+
+    .sidebar-info-card {
+        background:
+            linear-gradient(
+                145deg,
+                rgba(17, 27, 45, 0.96),
+                rgba(13, 22, 37, 0.96)
+            );
+        border: 1px solid rgba(148, 163, 184, 0.11);
+        border-radius: 16px;
+        padding: 15px 16px;
+        margin-top: 15px;
+        box-shadow:
+            0 8px 25px rgba(0, 0, 0, 0.12);
+    }
+
+    .sidebar-info-title {
+        color: #cbd5e1;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.7px;
+        font-weight: 800;
+        margin-bottom: 7px;
+    }
+
+    .sidebar-info-text {
+        color: #64748b;
+        font-size: 12px;
+        line-height: 1.75;
+    }
+
+    .sidebar-info-highlight {
+        color: #94a3b8;
+        font-size: 12px;
+        line-height: 1.8;
+    }
+
+    /* ========================================================
+       TOP HEADER
+       ======================================================== */
+
+    .top-title-bar {
         display: flex;
         justify-content: space-between;
-        align-items: flex-start;
-        margin-bottom: 1.7rem;
-    }
-
-    .app-title {
-        font-size: 2.15rem;
-        font-weight: 800;
-        line-height: 1.05;
-        color: #ffffff;
-        letter-spacing: -0.035em;
-    }
-
-    .app-subtitle {
-        margin-top: .5rem;
-        color: #8ea0b8;
-        font-size: .92rem;
-    }
-
-    .live-pill {
-        display: inline-flex;
         align-items: center;
-        gap: 7px;
-        padding: 7px 11px;
+        gap: 24px;
+        width: 100%;
+        padding: 18px 6px 22px 6px;
+        margin: 0 0 20px 0;
+        border-bottom: 1px solid rgba(148, 163, 184, 0.10);
+    }
+
+    .title-left {
+        min-width: 0;
+    }
+
+    .main-title {
+        color: #f8fafc;
+        font-size: 39px;
+        font-weight: 850;
+        line-height: 1.08;
+        letter-spacing: -1.3px;
+    }
+
+    .main-subtitle {
+        color: #94a3b8;
+        font-size: 15px;
+        margin-top: 8px;
+        line-height: 1.4;
+    }
+
+    .header-right {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-shrink: 0;
+    }
+
+    .live-badge {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 10px 15px;
         border-radius: 999px;
-        color: #86efac;
-        background: rgba(34,197,94,.08);
-        border: 1px solid rgba(34,197,94,.20);
-        font-size: .72rem;
+        background: rgba(16, 185, 129, 0.08);
+        border: 1px solid rgba(16, 185, 129, 0.23);
+        color: #34d399;
+        font-size: 12px;
         font-weight: 800;
-        letter-spacing: .04em;
+        letter-spacing: 0.4px;
+        white-space: nowrap;
     }
 
     .live-dot {
-        width: 7px;
-        height: 7px;
+        width: 8px;
+        height: 8px;
         border-radius: 50%;
         background: #22c55e;
         box-shadow:
-            0 0 12px rgba(34,197,94,.85);
+            0 0 0 4px rgba(34, 197, 94, 0.08),
+            0 0 12px rgba(34, 197, 94, 0.70);
     }
 
-    /* ======================================================
-       SECTION
-       ====================================================== */
-
-    .section {
-        margin-top: 1.5rem;
-        margin-bottom: .75rem;
+    .model-badge {
+        padding: 10px 14px;
+        border-radius: 999px;
+        background: rgba(96, 165, 250, 0.08);
+        border: 1px solid rgba(96, 165, 250, 0.18);
+        color: #93c5fd;
+        font-size: 12px;
+        font-weight: 700;
+        white-space: nowrap;
     }
+
+    /* ========================================================
+       SECTION HEADERS
+       ======================================================== */
 
     .section-row {
         display: flex;
+        align-items: end;
         justify-content: space-between;
-        align-items: center;
+        gap: 20px;
+        margin: 28px 0 14px 0;
     }
 
     .section-title {
         color: #f8fafc;
-        font-size: 1.05rem;
-        font-weight: 800;
-        letter-spacing: -.01em;
+        font-size: 19px;
+        line-height: 1.2;
+        font-weight: 850;
+        letter-spacing: -0.4px;
     }
 
-    .section-subtitle {
+    .section-helper {
         color: #64748b;
-        font-size: .74rem;
+        font-size: 12px;
+        text-align: right;
     }
 
-    /* ======================================================
-       HERO
-       ====================================================== */
+    /* ========================================================
+       MARKET CARDS
+       ======================================================== */
 
-    .hero {
+    .market-card-link {
+        display: block;
+        text-decoration: none !important;
+        color: inherit !important;
+    }
+
+    .market-card {
         position: relative;
         overflow: hidden;
-        padding: 1.55rem 1.65rem;
-        border-radius: 20px;
-        background:
-            linear-gradient(
-                135deg,
-                rgba(21,31,49,.98),
-                rgba(11,18,31,.98)
-            );
-        border: 1px solid rgba(148,163,184,.12);
-        box-shadow:
-            0 20px 60px rgba(0,0,0,.18);
-    }
-
-    .hero-glow {
-        position: absolute;
-        width: 280px;
-        height: 280px;
-        right: -110px;
-        top: -140px;
-        border-radius: 50%;
-        background: rgba(59,130,246,.08);
-        filter: blur(10px);
-    }
-
-    .hero-row {
-        position: relative;
-        z-index: 2;
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-    }
-
-    .hero-symbol {
-        color: #ffffff;
-        font-size: 1.4rem;
-        font-weight: 800;
-    }
-
-    .hero-market {
-        color: #64748b;
-        font-size: .74rem;
-        margin-top: .25rem;
-    }
-
-    .hero-price {
-        position: relative;
-        z-index: 2;
-        margin-top: 1.25rem;
-        color: #ffffff;
-        font-size: 2.9rem;
-        font-weight: 850;
-        letter-spacing: -.045em;
-    }
-
-    .hero-price-label {
-        position: relative;
-        z-index: 2;
-        color: #64748b;
-        font-size: .73rem;
-        margin-top: .35rem;
-    }
-
-    .hero-confidence {
-        position: relative;
-        z-index: 2;
-        margin-top: 1rem;
-        color: #94a3b8;
-        font-size: .82rem;
-    }
-
-    .hero-confidence strong {
-        color: #f8fafc;
-    }
-
-    /* ======================================================
-       SIGNALS
-       ====================================================== */
-
-    .signal {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        padding: 8px 12px;
-        border-radius: 10px;
-        font-size: .8rem;
-        font-weight: 850;
-        letter-spacing: .03em;
-    }
-
-    .signal-up {
-        color: #86efac;
-        background: rgba(34,197,94,.10);
-        border: 1px solid rgba(34,197,94,.24);
-    }
-
-    .signal-down {
-        color: #fca5a5;
-        background: rgba(239,68,68,.10);
-        border: 1px solid rgba(239,68,68,.24);
-    }
-
-    .signal-hold {
-        color: #cbd5e1;
-        background: rgba(148,163,184,.08);
-        border: 1px solid rgba(148,163,184,.16);
-    }
-
-    /* ======================================================
-       KPI CARDS
-       ====================================================== */
-
-    .card {
-        min-height: 92px;
-        padding: 1rem;
-        border-radius: 16px;
-        background: rgba(13,21,36,.86);
-        border: 1px solid rgba(148,163,184,.09);
-    }
-
-    .card-label {
-        color: #64748b;
-        font-size: .68rem;
-        font-weight: 750;
-        text-transform: uppercase;
-        letter-spacing: .06em;
-    }
-
-    .card-value {
-        margin-top: .35rem;
-        color: #f8fafc;
-        font-size: 1.18rem;
-        font-weight: 800;
-    }
-
-    .card-small {
-        margin-top: .2rem;
-        color: #64748b;
-        font-size: .67rem;
-    }
-
-    /* ======================================================
-       MARKET OVERVIEW CARDS
-       ====================================================== */
-
-    .coin-card-wrap {
-        text-decoration: none;
-        color: inherit;
-        display: block;
-    }
-
-    .coin-card {
-        min-height: 148px;
-        padding: 1.05rem 1.05rem 1rem;
-        border-radius: 17px;
+        min-height: 214px;
+        padding: 20px 19px 18px 19px;
+        border-radius: 19px;
+        border: 1px solid rgba(148, 163, 184, 0.11);
         background:
             linear-gradient(
                 145deg,
-                rgba(17,27,45,.98),
-                rgba(11,18,31,.98)
+                rgba(17, 27, 45, 0.98),
+                rgba(10, 19, 33, 0.98)
             );
-        border: 1px solid rgba(148,163,184,.10);
         box-shadow:
-            0 10px 30px rgba(0,0,0,.10);
+            0 12px 32px rgba(0, 0, 0, 0.13);
         transition:
-            transform .15s ease,
-            border-color .15s ease,
-            background .15s ease;
+            transform 0.16s ease,
+            border-color 0.16s ease,
+            box-shadow 0.16s ease;
     }
 
-    .coin-card:hover {
-        border-color: rgba(96,165,250,.35);
-        transform: translateY(-2px);
+    .market-card::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 2px;
         background:
             linear-gradient(
-                145deg,
-                rgba(22,34,56,1),
-                rgba(12,21,36,1)
+                90deg,
+                #38bdf8,
+                #60a5fa,
+                transparent
             );
+        opacity: 0.85;
     }
 
-    .coin-card-top {
+    .market-card:hover {
+        transform: translateY(-3px);
+        border-color: rgba(96, 165, 250, 0.30);
+        box-shadow:
+            0 18px 38px rgba(0, 0, 0, 0.24);
+    }
+
+    .market-card-top {
         display: flex;
-        align-items: center;
         justify-content: space-between;
-        gap: .5rem;
-    }
-
-    .coin-card-symbol {
-        color: #f1f5f9;
-        font-weight: 800;
-        font-size: .88rem;
-        letter-spacing: .01em;
-    }
-
-    .coin-card-price {
-        margin-top: .95rem;
-        color: #ffffff;
-        font-size: 1.34rem;
-        font-weight: 800;
-        letter-spacing: -.02em;
-    }
-
-    .coin-card-meta {
-        margin-top: .45rem;
-        color: #64748b;
-        font-size: .73rem;
-    }
-
-    .coin-card-meta strong {
-        color: #cbd5e1;
-    }
-
-    .coin-badge {
-        display: inline-flex;
         align-items: center;
-        justify-content: center;
-        padding: 4px 8px;
-        border-radius: 7px;
-        font-size: .64rem;
+        gap: 8px;
+    }
+
+    .market-symbol {
+        color: #f8fafc;
+        font-size: 16px;
         font-weight: 850;
+    }
+
+    .hold-pill,
+    .up-pill,
+    .down-pill {
+        border-radius: 8px;
+        padding: 6px 9px;
+        font-size: 10px;
+        font-weight: 850;
+        letter-spacing: 0.3px;
         white-space: nowrap;
     }
 
+    .hold-pill {
+        color: #cbd5e1;
+        background: #172235;
+        border: 1px solid rgba(148, 163, 184, 0.17);
+    }
+
+    .up-pill {
+        color: #34d399;
+        background: rgba(16, 185, 129, 0.08);
+        border: 1px solid rgba(16, 185, 129, 0.18);
+    }
+
+    .down-pill {
+        color: #fb7185;
+        background: rgba(244, 63, 94, 0.08);
+        border: 1px solid rgba(244, 63, 94, 0.18);
+    }
+
+    .market-price {
+        color: #f8fafc;
+        font-size: 24px;
+        font-weight: 850;
+        margin-top: 28px;
+        letter-spacing: -0.7px;
+    }
+
+    .market-meta {
+        color: #64748b;
+        font-size: 12px;
+        margin-top: 18px;
+        line-height: 1.8;
+    }
+
+    .market-meta strong {
+        color: #cbd5e1;
+        font-weight: 750;
+    }
+
     .confidence-track {
-        margin-top: .7rem;
         width: 100%;
-        height: 3px;
-        border-radius: 999px;
-        background: rgba(148,163,184,.08);
+        height: 4px;
+        margin-top: 13px;
         overflow: hidden;
+        border-radius: 999px;
+        background: #182333;
     }
 
     .confidence-fill {
         height: 100%;
         border-radius: 999px;
-        background: #60a5fa;
+        background:
+            linear-gradient(
+                90deg,
+                #38bdf8,
+                #60a5fa
+            );
     }
 
-    /* ======================================================
-       HEALTH
-       ====================================================== */
+    /* ========================================================
+       SYSTEM HEALTH STRIP
+       ======================================================== */
 
-    .health-card {
-        min-height: 90px;
-        padding: 1rem;
-        border-radius: 15px;
-        background: rgba(13,21,36,.82);
-        border: 1px solid rgba(148,163,184,.09);
+    .system-strip {
+        display: grid;
+        grid-template-columns:
+            1fr 1fr 1fr 1fr 1fr;
+        gap: 12px;
+        margin-top: 16px;
     }
 
-    .health-label {
+    .system-item {
+        background:
+            linear-gradient(
+                145deg,
+                #101a2b,
+                #0d1625
+            );
+        border: 1px solid rgba(148, 163, 184, 0.10);
+        border-radius: 14px;
+        padding: 13px 15px;
+    }
+
+    .system-label {
         color: #64748b;
-        font-size: .68rem;
+        font-size: 10px;
         text-transform: uppercase;
-        letter-spacing: .05em;
-    }
-
-    .healthy {
-        color: #86efac;
+        letter-spacing: 0.7px;
         font-weight: 800;
     }
 
-    .warning {
-        color: #fcd34d;
-        font-weight: 800;
-    }
-
-    .failed {
-        color: #fca5a5;
-        font-weight: 800;
-    }
-
-    /* ======================================================
-       SIDEBAR
-       ====================================================== */
-
-    .sidebar-brand {
+    .system-value {
         color: #f8fafc;
+        font-size: 15px;
+        font-weight: 800;
+        margin-top: 5px;
+    }
+
+    .system-pass {
+        color: #34d399;
+    }
+
+    /* ========================================================
+       HERO
+       ======================================================== */
+
+    .hero-card {
+        position: relative;
+        overflow: hidden;
+        padding: 25px;
+        border-radius: 21px;
+        border: 1px solid rgba(148, 163, 184, 0.11);
+        background:
+            radial-gradient(
+                circle at 100% 0%,
+                rgba(59, 130, 246, 0.11),
+                transparent 30%
+            ),
+            linear-gradient(
+                145deg,
+                #111b2d,
+                #0b1422
+            );
+        box-shadow:
+            0 16px 40px rgba(0, 0, 0, 0.17);
+    }
+
+    .hero-symbol {
+        color: #64748b;
+        font-size: 12px;
         font-weight: 850;
-        font-size: 1.15rem;
+        letter-spacing: 1.8px;
     }
 
-    .sidebar-sub {
-        color: #64748b;
-        font-size: .74rem;
-        margin-top: .18rem;
-        margin-bottom: 1.4rem;
+    .hero-price {
+        color: #f8fafc;
+        font-size: 44px;
+        line-height: 1;
+        font-weight: 900;
+        margin-top: 10px;
+        letter-spacing: -1.5px;
     }
 
-    .sidebar-info {
-        margin-top: 1rem;
-        padding: .9rem;
-        border-radius: 12px;
-        background: rgba(30,41,59,.42);
-        border: 1px solid rgba(148,163,184,.08);
-        color: #64748b;
-        font-size: .69rem;
-        line-height: 1.55;
-    }
-
-    .sidebar-info strong {
+    .hero-signal {
         color: #94a3b8;
+        font-size: 13px;
+        margin-top: 10px;
     }
 
-    /* ======================================================
-       FOOTER
-       ====================================================== */
+    /* ========================================================
+       KPI CARDS
+       ======================================================== */
 
-    .footer {
-        margin-top: 2rem;
-        padding-top: 1rem;
-        border-top: 1px solid rgba(148,163,184,.08);
-        text-align: center;
-        color: #475569;
-        font-size: .69rem;
+    div[data-testid="stMetric"] {
+        min-height: 98px;
+        background:
+            linear-gradient(
+                145deg,
+                #101a2b,
+                #0d1625
+            );
+        border: 1px solid rgba(148, 163, 184, 0.11);
+        border-radius: 15px;
+        padding: 14px 16px;
+        box-shadow:
+            0 8px 25px rgba(0, 0, 0, 0.10);
+    }
+
+    div[data-testid="stMetricLabel"],
+    div[data-testid="stMetricLabel"] *,
+    div[data-testid="stMetricLabel"] p {
+        color: #cbd5e1 !important;
+        font-weight: 650 !important;
+    }
+
+    div[data-testid="stMetricValue"],
+    div[data-testid="stMetricValue"] *,
+    div[data-testid="stMetricValue"] div {
+        color: #f8fafc !important;
+        font-weight: 850 !important;
+    }
+
+    div[data-testid="stMetricDelta"] * {
+        color: #94a3b8 !important;
+    }
+
+    /* ========================================================
+       STREAMLIT BUTTONS
+       ======================================================== */
+
+    .stButton > button {
+        width: 100%;
+        min-height: 41px;
+        border-radius: 10px;
+        border: 1px solid rgba(148, 163, 184, 0.15);
+        background: #f8fafc;
+        color: #172033;
+        font-weight: 700;
+        transition: all 0.15s ease;
+    }
+
+    .stButton > button:hover {
+        background: #ffffff;
+        color: #0f172a;
+        border-color: rgba(96, 165, 250, 0.40);
+    }
+
+    /* ========================================================
+       SELECTBOX / RADIO
+       ======================================================== */
+
+    div[data-baseweb="select"] > div {
+        border-radius: 10px !important;
+    }
+
+    div[role="radiogroup"] {
+        gap: 7px;
+    }
+
+    /* ========================================================
+       DATAFRAME
+       ======================================================== */
+
+    div[data-testid="stDataFrame"] {
+        border-radius: 14px;
+        overflow: hidden;
+        border: 1px solid rgba(148, 163, 184, 0.10);
+    }
+
+    /* ========================================================
+       RESPONSIVE
+       ======================================================== */
+
+    @media (max-width: 1100px) {
+
+        .main-title {
+            font-size: 32px;
+        }
+
+        .system-strip {
+            grid-template-columns:
+                repeat(2, 1fr);
+        }
     }
 
     </style>
-    """
+    """,
+    unsafe_allow_html=True,
 )
 
 
 # ============================================================
-# API
+# API HELPERS
 # ============================================================
 
-@st.cache_data(ttl=3)
 def api_get(
-    endpoint: str,
-) -> Any:
-
-    response = requests.get(
-        f"{API_BASE_URL}{endpoint}",
-        timeout=20,
-    )
-
-    response.raise_for_status()
-
-    return response.json()
-
-
-@st.cache_data(ttl=3)
-def get_predictions() -> pd.DataFrame:
-
-    return to_dataframe(
-        api_get(
-            "/predictions/latest"
-        )
-    )
-
-
-@st.cache_data(ttl=3)
-def get_market() -> pd.DataFrame:
-
-    return to_dataframe(
-        api_get(
-            "/market/latest"
-        )
-    )
-
-
-@st.cache_data(ttl=3)
-def get_monitoring() -> dict:
-
-    payload = api_get(
-        "/monitoring/latest"
-    )
-
-    return (
-        payload
-        if isinstance(
-            payload,
-            dict,
-        )
-        else {}
-    )
-
-
-@st.cache_data(ttl=10)
-def get_prediction_history(
-    symbol: str,
-) -> pd.DataFrame:
-
-    payload = api_get(
-        "/predictions/history"
-        f"?symbol={symbol}"
-        "&limit=5000"
-    )
-
-    df = to_dataframe(
-        payload
-    )
-
-    if df.empty:
-        return df
-
-    if "candle_time" in df.columns:
-
-        df["candle_time"] = pd.to_datetime(
-            df["candle_time"],
-            utc=True,
-            errors="coerce",
+    endpoint,
+    params=None,
+    timeout=8,
+):
+    try:
+        response = requests.get(
+            f"{API_BASE_URL}{endpoint}",
+            params=params,
+            timeout=timeout,
         )
 
-    for column in [
-        "ensemble_probability_up",
-        "ensemble_confidence",
-        "inference_latency_ms",
-    ]:
+        response.raise_for_status()
 
-        if column in df.columns:
+        return response.json()
 
-            df[column] = pd.to_numeric(
-                df[column],
-                errors="coerce",
-            )
+    except Exception:
+        return None
 
-    return (
-        df
-        .dropna(
-            subset=["candle_time"]
+
+def records_from_response(data):
+    if data is None:
+        return []
+
+    if isinstance(data, list):
+        return data
+
+    if isinstance(data, dict):
+
+        for key in [
+            "data",
+            "records",
+            "items",
+            "results",
+        ]:
+
+            value = data.get(key)
+
+            if isinstance(value, list):
+                return value
+
+    return []
+
+
+def to_dataframe(data):
+    records = records_from_response(data)
+
+    if not records:
+        return pd.DataFrame()
+
+    return pd.DataFrame(records)
+
+
+def pick(
+    row,
+    *names,
+    default=None,
+):
+    if row is None:
+        return default
+
+    for name in names:
+
+        if (
+            name in row
+            and pd.notna(row[name])
+        ):
+            return row[name]
+
+    return default
+
+
+def latest_row_for_symbol(
+    df,
+    symbol,
+):
+    if (
+        df.empty
+        or "symbol" not in df.columns
+    ):
+        return None
+
+    rows = df[
+        df["symbol"]
+        .astype(str)
+        .str.upper()
+        == symbol.upper()
+    ].copy()
+
+    if rows.empty:
+        return None
+
+    if "open_time_ms" in rows.columns:
+
+        rows = rows.sort_values(
+            "open_time_ms"
         )
-        .sort_values(
-            "candle_time"
-        )
-    )
 
+    elif (
+        "candle_open_time_ms"
+        in rows.columns
+    ):
 
-@st.cache_data(ttl=10)
-def get_market_history(
-    symbol: str,
-    interval: str,
-    limit: int,
-) -> pd.DataFrame:
-
-    payload = api_get(
-        "/market/history"
-        f"?symbol={symbol}"
-        f"&interval={interval}"
-        f"&limit={limit}"
-    )
-
-    df = to_dataframe(
-        payload
-    )
-
-    if df.empty:
-        return df
-
-    if "open_time" in df.columns:
-
-        df["open_time"] = pd.to_datetime(
-            df["open_time"],
-            utc=True,
-            errors="coerce",
+        rows = rows.sort_values(
+            "candle_open_time_ms"
         )
 
-    for column in [
-        "open",
-        "high",
-        "low",
-        "close",
-        "volume",
-    ]:
+    elif "open_time" in rows.columns:
 
-        if column in df.columns:
-
-            df[column] = pd.to_numeric(
-                df[column],
-                errors="coerce",
-            )
-
-    return (
-        df
-        .dropna(
-            subset=[
-                "open_time",
-                "open",
-                "high",
-                "low",
-                "close",
-                "volume",
-            ]
-        )
-        .sort_values(
+        rows = rows.sort_values(
             "open_time"
         )
+
+    return rows.iloc[-1].to_dict()
+
+
+def format_price(value):
+    if value is None or pd.isna(value):
+        return "—"
+
+    value = float(value)
+
+    if value >= 1000:
+        return f"${value:,.2f}"
+
+    if value >= 1:
+        return f"${value:,.2f}"
+
+    if value >= 0.1:
+        return f"${value:,.4f}"
+
+    return f"${value:,.6f}"
+
+
+def format_percent(value):
+    if value is None or pd.isna(value):
+        return "—"
+
+    return f"{float(value) * 100:.2f}%"
+
+
+def normalize_datetime(series):
+    if series is None:
+        return pd.Series(
+            dtype="datetime64[ns, UTC]"
+        )
+
+    result = pd.to_datetime(
+        series,
+        errors="coerce",
+        utc=True,
     )
+
+    if result.isna().all():
+
+        numeric = pd.to_numeric(
+            series,
+            errors="coerce",
+        )
+
+        result = pd.to_datetime(
+            numeric,
+            unit="ms",
+            errors="coerce",
+            utc=True,
+        )
+
+    return result
+
+
+def get_prediction_signal(row):
+    value = pick(
+        row or {},
+        "signal",
+        "ensemble_signal",
+        "raw_prediction",
+        default="HOLD",
+    )
+
+    return str(value).upper()
+
+
+def get_probability_up(row):
+    return pick(
+        row or {},
+        "ensemble_probability_up",
+        "probability_up",
+        default=None,
+    )
+
+
+def get_confidence(row):
+    return pick(
+        row or {},
+        "ensemble_confidence",
+        "confidence",
+        default=None,
+    )
+
+
+def signal_class(signal):
+    signal = str(signal).upper()
+
+    if signal == "UP":
+        return "up-pill"
+
+    if signal == "DOWN":
+        return "down-pill"
+
+    return "hold-pill"
+
+
+def normalize_history_timestamps(df):
+    if df.empty:
+        return df
+
+    result = df.copy()
+
+    timestamp_column = None
+
+    for candidate in [
+        "candle_open_time_ms",
+        "open_time_ms",
+        "open_time",
+        "timestamp",
+        "time",
+    ]:
+
+        if candidate in result.columns:
+            timestamp_column = candidate
+            break
+
+    if timestamp_column is None:
+        return result
+
+    result["timestamp"] = normalize_datetime(
+        result[timestamp_column]
+    )
+
+    return result.dropna(
+        subset=["timestamp"]
+    )
+
+
+def fetch_prediction_history(
+    symbol,
+    limit=200,
+):
+    data = api_get(
+        "/predictions/history",
+        params={
+            "symbol": symbol,
+            "limit": limit,
+        },
+        timeout=10,
+    )
+
+    return normalize_history_timestamps(
+        to_dataframe(data)
+    )
+
+
+# ============================================================
+# LOAD CURRENT DATA
+# ============================================================
+
+market_latest_data = api_get(
+    "/market/latest"
+)
+
+prediction_latest_data = api_get(
+    "/predictions/latest"
+)
+
+monitoring_latest_data = api_get(
+    "/monitoring/latest"
+)
+
+market_latest_df = to_dataframe(
+    market_latest_data
+)
+
+prediction_latest_df = to_dataframe(
+    prediction_latest_data
+)
+
+# /monitoring/latest returns ONE object.
+if isinstance(
+    monitoring_latest_data,
+    dict,
+):
+    monitoring_latest_row = (
+        monitoring_latest_data
+    )
+else:
+    monitoring_latest_row = {}
 
 
 # ============================================================
 # SIDEBAR
 # ============================================================
 
-query_symbol = st.query_params.get(
-    "symbol",
-    "All",
-)
-
-if query_symbol not in (
-    ["All"] + SYMBOLS
-):
-    query_symbol = "All"
-
-
 with st.sidebar:
 
     st.html(
         """
         <div class="sidebar-brand">
-            ₿ Crypto MLOps
-        </div>
 
-        <div class="sidebar-sub">
-            Live prediction & monitoring
+            <div class="sidebar-title">
+                ₿ Crypto MLOps
+            </div>
+
+            <div class="sidebar-subtitle">
+                Live prediction & monitoring
+            </div>
+
         </div>
         """
     )
 
-    st.markdown("### Market")
+    st.html(
+        """
+        <div class="sidebar-section">
+            Market
+        </div>
+        """
+    )
 
-    selected_symbol = st.selectbox(
-        "Coin",
-        ["All"] + SYMBOLS,
-        index=(
-            ["All"] + SYMBOLS
-        ).index(
-            query_symbol
-        ),
-        key="symbol_selector",
-        on_change=sync_symbol,
+    selected_from_sidebar = st.selectbox(
+        "Market",
+        ["All", *SYMBOLS],
+        index=0,
         label_visibility="collapsed",
     )
 
-    st.markdown("### Dashboard")
+    st.html(
+        """
+        <div class="sidebar-section">
+            Dashboard
+        </div>
+        """
+    )
 
     if st.button(
-        "↻  Refresh data",
+        "↻ Refresh data",
         use_container_width=True,
     ):
-
-        st.cache_data.clear()
         st.rerun()
 
     st.html(
         """
-        <div class="sidebar-info">
+        <div class="sidebar-info-card">
 
-            <strong>
+            <div class="sidebar-info-title">
                 Data flow
-            </strong><br>
+            </div>
 
-            Binance → SQLite →
-            Resident Inference →
-            FastAPI → Streamlit
+            <div class="sidebar-info-text">
+                Binance → SQLite → Resident
+                Inference → FastAPI → Streamlit
+            </div>
 
         </div>
 
-        <div class="sidebar-info">
+        <div class="sidebar-info-card">
 
-            <strong>
+            <div class="sidebar-info-title">
                 Production model
-            </strong><br>
+            </div>
 
-            CatBoost + GRU<br>
-            5-minute direction<br>
-            Confidence threshold: 0.55
+            <div class="sidebar-info-highlight">
+                CatBoost + GRU<br>
+                5-minute direction<br>
+                Confidence threshold: 0.55
+            </div>
+
+        </div>
+
+        <div class="sidebar-info-card">
+
+            <div class="sidebar-info-title">
+                Inference architecture
+            </div>
+
+            <div class="sidebar-info-highlight">
+                Resident model service<br>
+                55% CatBoost / 45% GRU<br>
+                Continuous 1-minute pipeline
+            </div>
 
         </div>
         """
@@ -884,390 +1010,378 @@ with st.sidebar:
 
 
 # ============================================================
-# LOAD DATA
+# SELECTED SYMBOL
 # ============================================================
+
+query_symbol = None
 
 try:
+    query_symbol = st.query_params.get(
+        "symbol"
+    )
+except Exception:
+    query_symbol = None
 
-    predictions = get_predictions()
-    market = get_market()
-    monitoring = get_monitoring()
+if isinstance(
+    query_symbol,
+    list,
+):
 
-except Exception as exc:
-
-    st.error(
-        "FastAPI connection failed."
+    query_symbol = (
+        query_symbol[0]
+        if query_symbol
+        else None
     )
 
-    st.code(
-        str(exc)
+if query_symbol not in SYMBOLS:
+    query_symbol = None
+
+if query_symbol:
+
+    selected_symbol = query_symbol
+
+elif selected_from_sidebar != "All":
+
+    selected_symbol = selected_from_sidebar
+
+else:
+
+    selected_symbol = None
+
+
+# ============================================================
+# TOP HEADER
+# ============================================================
+
+model_version = pick(
+    monitoring_latest_row,
+    "model_version",
+    default="catboost_v1_gru_v1_ensemble_v1",
+)
+
+metric_time = pick(
+    monitoring_latest_row,
+    "metric_time",
+    default=None,
+)
+
+if metric_time:
+    last_update_text = str(
+        metric_time
+    ).replace(
+        "T",
+        " "
+    ).replace(
+        "+00:00",
+        " UTC"
     )
+else:
+    last_update_text = "Waiting for telemetry"
 
-    st.stop()
-
-
-# ============================================================
-# NORMALIZE
-# ============================================================
-
-if "candle_time" in predictions.columns:
-
-    predictions["candle_time"] = (
-        pd.to_datetime(
-            predictions["candle_time"],
-            utc=True,
-            errors="coerce",
-        )
-    )
-
-if "open_time" in market.columns:
-
-    market["open_time"] = (
-        pd.to_datetime(
-            market["open_time"],
-            utc=True,
-            errors="coerce",
-        )
-    )
-
-
-all_predictions = predictions.copy()
-all_market = market.copy()
-
-
-# ============================================================
-# FILTER CURRENT VIEW
-# ============================================================
-
-if selected_symbol != "All":
-
-    predictions = predictions[
-        predictions["symbol"]
-        == selected_symbol
-    ].copy()
-
-    market = market[
-        market["symbol"]
-        == selected_symbol
-    ].copy()
-
-
-# ============================================================
-# HEADER
-# ============================================================
 
 st.html(
-    """
-    <div class="app-header">
+    f"""
+    <div class="top-title-bar">
 
-        <div>
+        <div class="title-left">
 
-            <div class="app-title">
-                Crypto MLOps Control Center
+            <div class="main-title">
+                ₿ Crypto MLOps Control Center
             </div>
 
-            <div class="app-subtitle">
+            <div class="main-subtitle">
                 Live market intelligence, model inference
                 and production health monitoring
             </div>
 
         </div>
 
-        <div class="live-pill">
-            <span class="live-dot"></span>
-            LIVE PIPELINE
+        <div class="header-right">
+
+            <div class="live-badge">
+                <span class="live-dot"></span>
+                LIVE PIPELINE
+            </div>
+
+            <div class="model-badge">
+                {model_version}
+            </div>
+
         </div>
 
+    </div>
+
+    <div
+        style="
+            color:#475569;
+            font-size:11px;
+            margin:-9px 4px 2px 4px;
+        "
+    >
+        Last telemetry update: {last_update_text}
     </div>
     """
 )
 
 
-# ============================================================
-# SINGLE COIN VIEW
-# ============================================================
+# ################################################################
+# ################################################################
+# ALL MARKET VIEW
+# ################################################################
 
-if selected_symbol != "All":
+if selected_symbol is None:
 
-    if predictions.empty:
-
-        st.warning(
-            "No prediction is currently available "
-            "for this coin."
-        )
-
-        st.stop()
-
-    prediction = predictions.iloc[0]
-
-    market_row = (
-        market.iloc[0]
-        if not market.empty
-        else None
-    )
-
-    signal = str(
-        prediction.get(
-            "signal",
-            "HOLD",
-        )
-    ).upper()
-
-    confidence = safe_float(
-        prediction.get(
-            "ensemble_confidence",
-            0,
-        )
-    )
-
-    probability_up = safe_float(
-        prediction.get(
-            "ensemble_probability_up",
-            0,
-        )
-    )
-
-    latency = safe_float(
-        prediction.get(
-            "inference_latency_ms",
-            0,
-        )
-    )
-
-    price = (
-        safe_float(
-            market_row.get(
-                "close",
-                0,
-            )
-        )
-        if market_row is not None
-        else safe_float(
-            prediction.get(
-                "close_price",
-                0,
-            )
-        )
-    )
-
-    candle_time = prediction.get(
-        "candle_time"
-    )
-
-    candle_text = (
-        pd.Timestamp(
-            candle_time
-        ).strftime(
-            "%H:%M:%S UTC"
-        )
-        if pd.notna(
-            candle_time
-        )
-        else "—"
-    )
-
-    # ========================================================
-    # HERO
-    # ========================================================
+    # ============================================================
+    # MARKET OVERVIEW
+    # ============================================================
 
     st.html(
         """
-        <div class="section">
+        <div class="section-row">
 
-            <div class="section-row">
+            <div class="section-title">
+                Market overview
+            </div>
 
-                <div class="section-title">
-                    Market & model state
-                </div>
-
-                <div class="section-subtitle">
-                    Selected asset
-                </div>
-
+            <div class="section-helper">
+                Click an asset to open its detailed view
             </div>
 
         </div>
         """
+    )
+
+    card_columns = st.columns(5)
+
+    for index, symbol in enumerate(SYMBOLS):
+
+        market_row = latest_row_for_symbol(
+            market_latest_df,
+            symbol,
+        )
+
+        prediction_row = (
+            latest_row_for_symbol(
+                prediction_latest_df,
+                symbol,
+            )
+        )
+
+        price = pick(
+            market_row or {},
+            "close_price",
+            "close",
+            default=None,
+        )
+
+        signal = get_prediction_signal(
+            prediction_row
+        )
+
+        confidence = get_confidence(
+            prediction_row
+        )
+
+        probability_up = get_probability_up(
+            prediction_row
+        )
+
+        confidence_value = (
+            float(confidence)
+            if confidence is not None
+            else 0.0
+        )
+
+        signal_css = signal_class(
+            signal
+        )
+
+        with card_columns[index]:
+
+            st.html(
+                f"""
+                <a
+                    class="market-card-link"
+                    href="?symbol={symbol}"
+                    target="_self"
+                >
+
+                    <div class="market-card">
+
+                        <div class="market-card-top">
+
+                            <div class="market-symbol">
+                                {symbol}
+                            </div>
+
+                            <div class="{signal_css}">
+                                {signal}
+                            </div>
+
+                        </div>
+
+                        <div class="market-price">
+                            {format_price(price)}
+                        </div>
+
+                        <div class="market-meta">
+
+                            Confidence:
+                            <strong>
+                                {format_percent(confidence)}
+                            </strong>
+
+                            <br>
+
+                            UP probability:
+                            <strong>
+                                {format_percent(probability_up)}
+                            </strong>
+
+                        </div>
+
+                        <div class="confidence-track">
+
+                            <div
+                                class="confidence-fill"
+                                style="
+                                    width:
+                                    {min(
+                                        max(
+                                            confidence_value,
+                                            0
+                                        ),
+                                        1
+                                    ) * 100:.1f}%;
+                                "
+                            ></div>
+
+                        </div>
+
+                    </div>
+
+                </a>
+                """
+            )
+
+    # ============================================================
+    # SYSTEM STATUS STRIP
+    # ============================================================
+
+    data_status = str(
+        pick(
+            monitoring_latest_row,
+            "data_freshness_status",
+            default="UNKNOWN",
+        )
+    )
+
+    sequence_status = str(
+        pick(
+            monitoring_latest_row,
+            "sequence_continuity_status",
+            default="UNKNOWN",
+        )
+    )
+
+    prediction_status = str(
+        pick(
+            monitoring_latest_row,
+            "prediction_completeness_status",
+            default="UNKNOWN",
+        )
+    )
+
+    latency = pick(
+        monitoring_latest_row,
+        "mean_inference_latency_ms",
+        default=None,
+    )
+
+    drift = pick(
+        monitoring_latest_row,
+        "feature_abs_z_gt3_pct",
+        default=None,
     )
 
     st.html(
         f"""
-        <div class="hero">
+        <div class="system-strip">
 
-            <div class="hero-glow"></div>
+            <div class="system-item">
 
-            <div class="hero-row">
-
-                <div>
-
-                    <div class="hero-symbol">
-                        {html.escape(
-                            selected_symbol
-                        )}
-                    </div>
-
-                    <div class="hero-market">
-                        Binance Spot • 1-minute candle
-                    </div>
-
+                <div class="system-label">
+                    Data freshness
                 </div>
 
-                <div class="signal {
-                    signal_class(signal)
-                }">
-
-                    {signal_text(signal)}
-
+                <div class="
+                    system-value
+                    {'system-pass' if data_status == 'PASS' else ''}
+                ">
+                    ● {data_status}
                 </div>
 
             </div>
 
-            <div class="hero-price">
-                {format_price(price)}
-            </div>
+            <div class="system-item">
 
-            <div class="hero-price-label">
-                Latest closed market price
-            </div>
-
-            <div class="hero-confidence">
-
-                Ensemble confidence:
-                <strong>
-                    {confidence:.2%}
-                </strong>
-
-                &nbsp; • &nbsp;
-
-                UP probability:
-                <strong>
-                    {probability_up:.2%}
-                </strong>
-
-            </div>
-
-        </div>
-        """
-    )
-
-    st.html(
-        "<div style='height:12px'></div>"
-    )
-
-    # ========================================================
-    # KPI
-    # ========================================================
-
-    kpi_cols = st.columns(4)
-
-    with kpi_cols[0]:
-
-        st.html(
-            f"""
-            <div class="card">
-
-                <div class="card-label">
-                    Signal
+                <div class="system-label">
+                    Sequence continuity
                 </div>
 
-                <div class="card-value">
-                    <span class="{
-                        signal_class(signal)
-                    }">
-                        {signal_text(signal)}
-                    </span>
-                </div>
-
-                <div class="card-small">
-                    5-minute direction
+                <div class="
+                    system-value
+                    {'system-pass' if sequence_status == 'PASS' else ''}
+                ">
+                    ● {sequence_status}
                 </div>
 
             </div>
-            """
-        )
 
-    with kpi_cols[1]:
+            <div class="system-item">
 
-        st.html(
-            f"""
-            <div class="card">
-
-                <div class="card-label">
-                    Confidence
+                <div class="system-label">
+                    Prediction completeness
                 </div>
 
-                <div class="card-value">
-                    {confidence:.2%}
-                </div>
-
-                <div class="card-small">
-                    Threshold: 55%
+                <div class="
+                    system-value
+                    {'system-pass' if prediction_status == 'PASS' else ''}
+                ">
+                    ● {prediction_status}
                 </div>
 
             </div>
-            """
-        )
 
-    with kpi_cols[2]:
+            <div class="system-item">
 
-        st.html(
-            f"""
-            <div class="card">
-
-                <div class="card-label">
-                    Inference latency
+                <div class="system-label">
+                    Mean inference
                 </div>
 
-                <div class="card-value">
-                    {latency:.1f} ms
-                </div>
-
-                <div class="card-small">
-                    Resident inference service
+                <div class="system-value">
+                    {
+                        f"{float(latency):.1f} ms"
+                        if latency is not None
+                        else "—"
+                    }
                 </div>
 
             </div>
-            """
-        )
 
-    with kpi_cols[3]:
+            <div class="system-item">
 
-        st.html(
-            f"""
-            <div class="card">
-
-                <div class="card-label">
-                    Latest candle
+                <div class="system-label">
+                    Feature drift
                 </div>
 
-                <div class="card-value">
-                    {candle_text}
-                </div>
-
-                <div class="card-small">
-                    Most recent prediction
-                </div>
-
-            </div>
-            """
-        )
-
-    # ========================================================
-    # CANDLESTICK MARKET HISTORY
-    # ========================================================
-
-    st.html(
-        """
-        <div class="section">
-
-            <div class="section-row">
-
-                <div class="section-title">
-                    Price history
-                </div>
-
-                <div class="section-subtitle">
-                    OHLCV market data
+                <div class="system-value">
+                    {
+                        f"{float(drift):.2f}%"
+                        if drift is not None
+                        else "—"
+                    }
+                    |z| > 3
                 </div>
 
             </div>
@@ -1276,554 +1390,484 @@ if selected_symbol != "All":
         """
     )
 
-    chart_cols = st.columns(
-        [1, 1]
+    # ============================================================
+    # ENSEMBLE BAR CHART
+    # ============================================================
+
+    st.html(
+        """
+        <div class="section-row">
+
+            <div class="section-title">
+                Ensemble market view
+            </div>
+
+            <div class="section-helper">
+                Current probability of a positive 5-minute direction
+            </div>
+
+        </div>
+        """
     )
 
-    with chart_cols[0]:
+    chart_rows = []
 
-        selected_interval = st.radio(
-            "Timeframe",
-            TIMEFRAMES,
-            horizontal=True,
-            key="market_timeframe",
+    for symbol in SYMBOLS:
+
+        prediction_row = (
+            latest_row_for_symbol(
+                prediction_latest_df,
+                symbol,
+            )
         )
 
-    with chart_cols[1]:
-
-        selected_limit = st.selectbox(
-            "History",
-            HISTORY_LIMITS,
-            index=1,
-            key="market_history_limit",
-            format_func=lambda value:
-                f"{value:,} candles",
+        probability_up = (
+            get_probability_up(
+                prediction_row
+            )
         )
 
-    market_history = get_market_history(
-        selected_symbol,
-        selected_interval,
-        selected_limit,
+        if probability_up is not None:
+
+            chart_rows.append(
+                {
+                    "symbol": symbol,
+                    "UP probability": (
+                        float(
+                            probability_up
+                        ) * 100
+                    ),
+                }
+            )
+
+    chart_df = pd.DataFrame(
+        chart_rows
     )
 
-    if market_history.empty:
+    if not chart_df.empty:
 
-        st.info(
-            "No market history is available "
-            "for this asset."
-        )
+        fig = go.Figure()
 
-    else:
-
-        # ----------------------------------------------------
-        # EMA 20
-        # ----------------------------------------------------
-
-        market_history["ema_20"] = (
-            market_history["close"]
-            .ewm(
-                span=20,
-                adjust=False,
-            )
-            .mean()
-        )
-
-        # ----------------------------------------------------
-        # BOLLINGER BANDS
-        # ----------------------------------------------------
-
-        rolling_mean = (
-            market_history["close"]
-            .rolling(
-                20
-            )
-            .mean()
-        )
-
-        rolling_std = (
-            market_history["close"]
-            .rolling(
-                20
-            )
-            .std()
-        )
-
-        market_history["bb_middle"] = (
-            rolling_mean
-        )
-
-        market_history["bb_upper"] = (
-            rolling_mean
-            + 2 * rolling_std
-        )
-
-        market_history["bb_lower"] = (
-            rolling_mean
-            - 2 * rolling_std
-        )
-
-        # ----------------------------------------------------
-        # CANDLESTICK
-        # ----------------------------------------------------
-
-        candle_fig = go.Figure()
-
-        candle_fig.add_trace(
-            go.Candlestick(
-                x=market_history[
-                    "open_time"
+        fig.add_trace(
+            go.Bar(
+                x=chart_df["symbol"],
+                y=chart_df[
+                    "UP probability"
                 ],
-                open=market_history[
-                    "open"
+                text=[
+                    f"{value:.1f}%"
+                    for value
+                    in chart_df[
+                        "UP probability"
+                    ]
                 ],
-                high=market_history[
-                    "high"
-                ],
-                low=market_history[
-                    "low"
-                ],
-                close=market_history[
-                    "close"
-                ],
-                name=selected_symbol,
-                increasing_line_color="#22c55e",
-                decreasing_line_color="#ef4444",
-                increasing_fillcolor="#22c55e",
-                decreasing_fillcolor="#ef4444",
-            )
-        )
-
-        candle_fig.add_trace(
-            go.Scatter(
-                x=market_history[
-                    "open_time"
-                ],
-                y=market_history[
-                    "ema_20"
-                ],
-                mode="lines",
-                name="EMA 20",
-                line=dict(
-                    color="#60a5fa",
-                    width=1.7,
+                textposition="outside",
+                textfont=dict(
+                    color="#f8fafc",
+                    size=12,
+                ),
+                marker=dict(
+                    color="#3b82f6",
+                    line=dict(
+                        width=0,
+                    ),
+                ),
+                hovertemplate=(
+                    "<b>%{x}</b><br>"
+                    "UP probability: %{y:.2f}%"
+                    "<extra></extra>"
                 ),
             )
         )
 
-        candle_fig.add_trace(
-            go.Scatter(
-                x=market_history[
-                    "open_time"
-                ],
-                y=market_history[
-                    "bb_upper"
-                ],
-                mode="lines",
-                name="BB Upper",
-                line=dict(
-                    color="#64748b",
-                    width=1,
-                    dash="dot",
-                ),
-            )
+        fig.add_hline(
+            y=50,
+            line_dash="dot",
+            line_color="rgba(148,163,184,0.45)",
+            annotation_text="50%",
+            annotation_position="right",
+            annotation_font=dict(
+                color="#cbd5e1",
+                size=11,
+            ),
         )
 
-        candle_fig.add_trace(
-            go.Scatter(
-                x=market_history[
-                    "open_time"
-                ],
-                y=market_history[
-                    "bb_lower"
-                ],
-                mode="lines",
-                name="BB Lower",
-                line=dict(
-                    color="#64748b",
-                    width=1,
-                    dash="dot",
-                ),
-            )
-        )
-
-        candle_fig.update_layout(
-            height=600,
+        fig.update_layout(
+            height=330,
             margin=dict(
-                l=15,
-                r=15,
-                t=35,
-                b=15,
+                l=0,
+                r=0,
+                t=25,
+                b=5,
             ),
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
             font=dict(
-                color="#cbd5e1"
+                color="#f8fafc"
             ),
             xaxis=dict(
-                rangeslider=dict(
-                    visible=True,
-                    thickness=0.08,
+                tickfont=dict(
+                    color="#cbd5e1",
+                    size=12,
                 ),
-                gridcolor=(
-                    "rgba(148,163,184,.06)"
-                ),
+                gridcolor="rgba(0,0,0,0)",
+                zeroline=False,
             ),
             yaxis=dict(
-                title="Price",
-                gridcolor=(
-                    "rgba(148,163,184,.08)"
+                title="UP probability (%)",
+                range=[0, 100],
+                tickfont=dict(
+                    color="#cbd5e1",
+                    size=12,
                 ),
+                title_font=dict(
+                    color="#f8fafc",
+                    size=12,
+                ),
+                gridcolor="rgba(148,163,184,0.08)",
+                zeroline=False,
+            ),
+            showlegend=False,
+        )
+
+        st.plotly_chart(
+            fig,
+            use_container_width=True,
+            config={
+                "displayModeBar": False,
+                "responsive": True,
+            },
+        )
+
+    # ============================================================
+    # LOAD ALL PREDICTION HISTORY ONCE
+    # ============================================================
+
+    all_history = {}
+
+    for symbol in SYMBOLS:
+
+        history_df = fetch_prediction_history(
+            symbol,
+            limit=200,
+        )
+
+        if not history_df.empty:
+            all_history[symbol] = (
+                history_df
+            )
+
+    # ============================================================
+    # UP PROBABILITY LINE CHART
+    # ============================================================
+
+    st.html(
+        """
+        <div class="section-row">
+
+            <div class="section-title">
+                UP probability over time
+            </div>
+
+            <div class="section-helper">
+                Historical ensemble probability across all assets
+            </div>
+
+        </div>
+        """
+    )
+
+    probability_fig = go.Figure()
+
+    probability_has_data = False
+
+    for symbol in SYMBOLS:
+
+        history_df = all_history.get(
+            symbol,
+            pd.DataFrame(),
+        )
+
+        if (
+            history_df.empty
+            or "ensemble_probability_up"
+            not in history_df.columns
+        ):
+            continue
+
+        probability_values = (
+            pd.to_numeric(
+                history_df[
+                    "ensemble_probability_up"
+                ],
+                errors="coerce",
+            ) * 100
+        )
+
+        valid_mask = (
+            history_df[
+                "timestamp"
+            ].notna()
+            & probability_values.notna()
+        )
+
+        plot_df = history_df.loc[
+            valid_mask
+        ].copy()
+
+        plot_df["value"] = (
+            probability_values[
+                valid_mask
+            ]
+        )
+
+        if plot_df.empty:
+            continue
+
+        probability_has_data = True
+
+        probability_fig.add_trace(
+            go.Scatter(
+                x=plot_df["timestamp"],
+                y=plot_df["value"],
+                mode="lines",
+                name=symbol,
+                line=dict(
+                    width=2,
+                ),
+                hovertemplate=(
+                    f"<b>{symbol}</b><br>"
+                    "UP probability: %{y:.2f}%"
+                    "<extra></extra>"
+                ),
+            )
+        )
+
+    if probability_has_data:
+
+        probability_fig.add_hline(
+            y=50,
+            line_dash="dot",
+            line_color="rgba(148,163,184,0.40)",
+            annotation_text="50% neutral",
+            annotation_position="right",
+            annotation_font=dict(
+                color="#cbd5e1",
+                size=11,
+            ),
+        )
+
+        probability_fig.update_layout(
+            height=390,
+            margin=dict(
+                l=0,
+                r=0,
+                t=30,
+                b=5,
+            ),
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(
+                color="#f8fafc"
             ),
             hovermode="x unified",
+            xaxis=dict(
+                tickfont=dict(
+                    color="#cbd5e1",
+                    size=11,
+                ),
+                gridcolor="rgba(148,163,184,0.06)",
+                zeroline=False,
+            ),
+            yaxis=dict(
+                title="UP probability (%)",
+                range=[0, 100],
+                tickfont=dict(
+                    color="#cbd5e1",
+                    size=11,
+                ),
+                title_font=dict(
+                    color="#f8fafc",
+                    size=12,
+                ),
+                gridcolor="rgba(148,163,184,0.08)",
+                zeroline=False,
+            ),
             legend=dict(
                 orientation="h",
                 yanchor="bottom",
                 y=1.02,
                 xanchor="left",
                 x=0,
+                font=dict(
+                    color="#f8fafc",
+                    size=12,
+                ),
             ),
         )
 
         st.plotly_chart(
-            candle_fig,
+            probability_fig,
             use_container_width=True,
             config={
-                "displayModeBar": True,
-                "scrollZoom": True,
+                "displayModeBar": False,
+                "responsive": True,
             },
         )
 
-        # ----------------------------------------------------
-        # VOLUME
-        # ----------------------------------------------------
+    else:
 
-        volume_colors = [
-            (
-                "#22c55e"
-                if close_price >= open_price
-                else "#ef4444"
-            )
-            for open_price, close_price
-            in zip(
-                market_history[
-                    "open"
-                ],
-                market_history[
-                    "close"
-                ],
-            )
-        ]
+        st.info(
+            "Prediction history is not available yet."
+        )
 
-        volume_fig = go.Figure()
+    # ============================================================
+    # CONFIDENCE LINE CHART
+    # ============================================================
 
-        volume_fig.add_trace(
-            go.Bar(
-                x=market_history[
-                    "open_time"
+    st.html(
+        """
+        <div class="section-row">
+
+            <div class="section-title">
+                Prediction confidence over time
+            </div>
+
+            <div class="section-helper">
+                Model confidence versus the 55% action threshold
+            </div>
+
+        </div>
+        """
+    )
+
+    confidence_fig = go.Figure()
+
+    confidence_has_data = False
+
+    for symbol in SYMBOLS:
+
+        history_df = all_history.get(
+            symbol,
+            pd.DataFrame(),
+        )
+
+        if (
+            history_df.empty
+            or "ensemble_confidence"
+            not in history_df.columns
+        ):
+            continue
+
+        confidence_values = (
+            pd.to_numeric(
+                history_df[
+                    "ensemble_confidence"
                 ],
-                y=market_history[
-                    "volume"
-                ],
-                name="Volume",
-                marker_color=volume_colors,
+                errors="coerce",
+            ) * 100
+        )
+
+        valid_mask = (
+            history_df[
+                "timestamp"
+            ].notna()
+            & confidence_values.notna()
+        )
+
+        plot_df = history_df.loc[
+            valid_mask
+        ].copy()
+
+        plot_df["value"] = (
+            confidence_values[
+                valid_mask
+            ]
+        )
+
+        if plot_df.empty:
+            continue
+
+        confidence_has_data = True
+
+        confidence_fig.add_trace(
+            go.Scatter(
+                x=plot_df["timestamp"],
+                y=plot_df["value"],
+                mode="lines",
+                name=symbol,
+                line=dict(
+                    width=2,
+                ),
+                hovertemplate=(
+                    f"<b>{symbol}</b><br>"
+                    "Confidence: %{y:.2f}%"
+                    "<extra></extra>"
+                ),
             )
         )
 
-        volume_fig.update_layout(
-            height=220,
+    if confidence_has_data:
+
+        confidence_fig.add_hline(
+            y=55,
+            line_dash="dot",
+            line_color="rgba(245,158,11,0.65)",
+            annotation_text="55% action threshold",
+            annotation_position="right",
+            annotation_font=dict(
+                color="#fbbf24",
+                size=11,
+            ),
+        )
+
+        confidence_fig.update_layout(
+            height=390,
             margin=dict(
-                l=15,
-                r=15,
-                t=25,
-                b=15,
+                l=0,
+                r=0,
+                t=30,
+                b=5,
             ),
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
             font=dict(
-                color="#cbd5e1"
+                color="#f8fafc"
             ),
+            hovermode="x unified",
             xaxis=dict(
-                gridcolor=(
-                    "rgba(148,163,184,.06)"
+                tickfont=dict(
+                    color="#cbd5e1",
+                    size=11,
                 ),
+                gridcolor="rgba(148,163,184,0.06)",
+                zeroline=False,
             ),
             yaxis=dict(
-                title="Volume",
-                gridcolor=(
-                    "rgba(148,163,184,.08)"
+                title="Confidence (%)",
+                range=[45, 65],
+                tickfont=dict(
+                    color="#cbd5e1",
+                    size=11,
+                ),
+                title_font=dict(
+                    color="#f8fafc",
+                    size=12,
+                ),
+                gridcolor="rgba(148,163,184,0.08)",
+                zeroline=False,
+            ),
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="left",
+                x=0,
+                font=dict(
+                    color="#f8fafc",
+                    size=12,
                 ),
             ),
-            showlegend=False,
-        )
-
-        st.plotly_chart(
-            volume_fig,
-            use_container_width=True,
-            config={
-                "displayModeBar": False,
-            },
-        )
-
-    # ========================================================
-    # MARKET SNAPSHOT
-    # ========================================================
-
-    st.html(
-        """
-        <div class="section">
-
-            <div class="section-row">
-
-                <div class="section-title">
-                    Market snapshot
-                </div>
-
-            </div>
-
-        </div>
-        """
-    )
-
-    if market_row is not None:
-
-        market_values = [
-            (
-                "Open",
-                format_price(
-                    market_row.get(
-                        "open",
-                        0,
-                    )
-                ),
-            ),
-            (
-                "High",
-                format_price(
-                    market_row.get(
-                        "high",
-                        0,
-                    )
-                ),
-            ),
-            (
-                "Low",
-                format_price(
-                    market_row.get(
-                        "low",
-                        0,
-                    )
-                ),
-            ),
-            (
-                "Volume",
-                format_volume(
-                    market_row.get(
-                        "volume",
-                        0,
-                    )
-                ),
-            ),
-        ]
-
-        cols = st.columns(4)
-
-        for col, (
-            label,
-            value,
-        ) in zip(
-            cols,
-            market_values,
-        ):
-
-            with col:
-
-                st.html(
-                    f"""
-                    <div class="card">
-
-                        <div class="card-label">
-                            {label}
-                        </div>
-
-                        <div class="card-value">
-                            {value}
-                        </div>
-
-                    </div>
-                    """
-                )
-
-    # ========================================================
-    # MODEL CONSENSUS
-    # ========================================================
-
-    st.html(
-        """
-        <div class="section">
-
-            <div class="section-row">
-
-                <div class="section-title">
-                    Model consensus
-                </div>
-
-                <div class="section-subtitle">
-                    Probability of upward 5-minute direction
-                </div>
-
-            </div>
-
-        </div>
-        """
-    )
-
-    model_df = pd.DataFrame(
-        {
-            "Model": [
-                "CatBoost",
-                "GRU",
-                "Ensemble",
-            ],
-            "Probability": [
-                safe_float(
-                    prediction.get(
-                        "catboost_probability_up",
-                        0,
-                    )
-                ),
-                safe_float(
-                    prediction.get(
-                        "gru_probability_up",
-                        0,
-                    )
-                ),
-                safe_float(
-                    prediction.get(
-                        "ensemble_probability_up",
-                        0,
-                    )
-                ),
-            ],
-        }
-    )
-
-    model_fig = px.bar(
-        model_df,
-        x="Model",
-        y="Probability",
-        text="Probability",
-        range_y=[0, 1],
-        template="plotly_dark",
-    )
-
-    model_fig.update_traces(
-        texttemplate="%{text:.2%}",
-        textposition="outside",
-        marker_line_width=0,
-    )
-
-    model_fig.add_hline(
-        y=0.55,
-        line_dash="dash",
-        line_color="#f59e0b",
-        annotation_text="55% threshold",
-    )
-
-    model_fig = style_figure(
-        model_fig,
-        380,
-    )
-
-    model_fig.update_yaxes(
-        tickformat=".0%"
-    )
-
-    model_fig.update_layout(
-        showlegend=False
-    )
-
-    st.plotly_chart(
-        model_fig,
-        use_container_width=True,
-        config={
-            "displayModeBar": False,
-        },
-    )
-
-    # ========================================================
-    # PREDICTION HISTORY
-    # ========================================================
-
-    prediction_history = (
-        get_prediction_history(
-            selected_symbol
-        )
-    )
-
-    if not prediction_history.empty:
-
-        # ----------------------------------------------------
-        # CONFIDENCE
-        # ----------------------------------------------------
-
-        st.html(
-            """
-            <div class="section">
-
-                <div class="section-row">
-
-                    <div class="section-title">
-                        Ensemble confidence over time
-                    </div>
-
-                    <div class="section-subtitle">
-                        Recent confidence behavior
-                    </div>
-
-                </div>
-
-            </div>
-            """
-        )
-
-        confidence_fig = go.Figure()
-
-        confidence_fig.add_trace(
-            go.Scatter(
-                x=prediction_history[
-                    "candle_time"
-                ],
-                y=prediction_history[
-                    "ensemble_confidence"
-                ],
-                mode="lines+markers",
-                name="Confidence",
-                line=dict(
-                    color="#60a5fa",
-                    width=2.5,
-                ),
-                marker=dict(
-                    size=5,
-                ),
-            )
-        )
-
-        confidence_fig.add_hline(
-            y=0.55,
-            line_dash="dash",
-            line_color="#f59e0b",
-            annotation_text="55%",
-        )
-
-        confidence_fig.update_yaxes(
-            range=[0, 1],
-            tickformat=".0%",
-            title="Confidence",
-        )
-
-        confidence_fig = style_figure(
-            confidence_fig,
-            420,
         )
 
         st.plotly_chart(
@@ -1831,599 +1875,826 @@ if selected_symbol != "All":
             use_container_width=True,
             config={
                 "displayModeBar": False,
+                "responsive": True,
             },
         )
 
-        # ----------------------------------------------------
-        # UP PROBABILITY
-        # ----------------------------------------------------
+    else:
 
-        st.html(
-            """
-            <div class="section">
+        st.info(
+            "Confidence history is not available yet."
+        )
 
-                <div class="section-row">
+    # ============================================================
+    # FINAL MLOPS HEALTH
+    # ============================================================
 
-                    <div class="section-title">
-                        Historical ensemble UP probability
-                    </div>
+    st.html(
+        """
+        <div class="section-row">
 
-                    <div class="section-subtitle">
-                        Directional probability over time
-                    </div>
-
-                </div>
-
+            <div class="section-title">
+                MLOps health
             </div>
-            """
-        )
 
-        probability_fig = go.Figure()
-
-        probability_fig.add_trace(
-            go.Scatter(
-                x=prediction_history[
-                    "candle_time"
-                ],
-                y=prediction_history[
-                    "ensemble_probability_up"
-                ],
-                mode="lines+markers",
-                name="UP probability",
-                line=dict(
-                    color="#a78bfa",
-                    width=2.5,
-                ),
-                marker=dict(
-                    size=5,
-                ),
-            )
-        )
-
-        probability_fig.add_hline(
-            y=0.50,
-            line_dash="dot",
-            line_color="#64748b",
-            annotation_text="50%",
-        )
-
-        probability_fig.add_hline(
-            y=0.55,
-            line_dash="dash",
-            line_color="#f59e0b",
-            annotation_text="55%",
-        )
-
-        probability_fig.update_yaxes(
-            range=[0, 1],
-            tickformat=".0%",
-            title="UP probability",
-        )
-
-        probability_fig = style_figure(
-            probability_fig,
-            420,
-        )
-
-        st.plotly_chart(
-            probability_fig,
-            use_container_width=True,
-            config={
-                "displayModeBar": False,
-            },
-        )
-
-        # ----------------------------------------------------
-        # RECENT PREDICTIONS
-        # ----------------------------------------------------
-
-        st.html(
-            """
-            <div class="section">
-
-                <div class="section-title">
-                    Recent predictions
-                </div>
-
+            <div class="section-helper">
+                Production pipeline telemetry
             </div>
-            """
-        )
 
-        table = prediction_history.copy()
+        </div>
+        """
+    )
 
-        table[
-            "candle_time"
-        ] = (
-            table[
-                "candle_time"
-            ]
-            .dt.strftime(
-                "%Y-%m-%d %H:%M:%S"
-            )
-        )
+    health_cols = st.columns(5)
 
-        columns = [
-            "candle_time",
-            "symbol",
-            "ensemble_probability_up",
-            "ensemble_confidence",
-            "signal",
-            "inference_latency_ms",
-        ]
+    with health_cols[0]:
 
-        columns = [
-            column
-            for column in columns
-            if column in table.columns
-        ]
-
-        table = (
-            table[
-                columns
-            ]
-            .sort_values(
-                "candle_time",
-                ascending=False,
-            )
-            .head(20)
-        )
-
-        table = table.rename(
-            columns={
-                "candle_time":
-                    "Candle time",
-                "symbol":
-                    "Symbol",
-                "ensemble_probability_up":
-                    "UP probability",
-                "ensemble_confidence":
-                    "Confidence",
-                "signal":
-                    "Signal",
-                "inference_latency_ms":
-                    "Latency (ms)",
-            }
-        )
-
-        if "UP probability" in table.columns:
-
-            table[
-                "UP probability"
-            ] = (
-                table[
-                    "UP probability"
-                ]
-                .map(
-                    lambda value:
-                    f"{safe_float(value):.2%}"
+        st.metric(
+            "Data freshness",
+            str(
+                pick(
+                    monitoring_latest_row,
+                    "data_freshness_status",
+                    default="UNKNOWN",
                 )
-            )
+            ),
+        )
 
-        if "Confidence" in table.columns:
+    with health_cols[1]:
 
-            table[
-                "Confidence"
-            ] = (
-                table[
-                    "Confidence"
-                ]
-                .map(
-                    lambda value:
-                    f"{safe_float(value):.2%}"
+        st.metric(
+            "Sequence continuity",
+            str(
+                pick(
+                    monitoring_latest_row,
+                    "sequence_continuity_status",
+                    default="UNKNOWN",
                 )
-            )
+            ),
+        )
 
-        st.dataframe(
-            table,
-            use_container_width=True,
-            hide_index=True,
+    with health_cols[2]:
+
+        st.metric(
+            "Prediction completeness",
+            str(
+                pick(
+                    monitoring_latest_row,
+                    "prediction_completeness_status",
+                    default="UNKNOWN",
+                )
+            ),
+        )
+
+    with health_cols[3]:
+
+        latency = pick(
+            monitoring_latest_row,
+            "mean_inference_latency_ms",
+            default=None,
+        )
+
+        st.metric(
+            "Mean inference",
+            (
+                f"{float(latency):.1f} ms"
+                if latency is not None
+                else "—"
+            ),
+        )
+
+    with health_cols[4]:
+
+        drift = pick(
+            monitoring_latest_row,
+            "feature_abs_z_gt3_pct",
+            default=None,
+        )
+
+        st.metric(
+            "Features |z| > 3",
+            (
+                f"{float(drift):.2f}%"
+                if drift is not None
+                else "—"
+            ),
         )
 
 
-# ============================================================
-# ALL COINS VIEW
-# ============================================================
+# ################################################################
+# ################################################################
+# SELECTED COIN VIEW
+# ################################################################
 
 else:
 
-    st.html(
-        """
-        <div class="section">
+    # ============================================================
+    # BACK BUTTON
+    # ============================================================
 
-            <div class="section-row">
-
-                <div class="section-title">
-                    Market overview
-                </div>
-
-                <div class="section-subtitle">
-                    Click a card to open the full market view
-                </div>
-
-            </div>
-
-        </div>
-        """
+    back_col, _ = st.columns(
+        [1, 8]
     )
 
-    # --------------------------------------------------------
-    # MARKET CARDS
-    # --------------------------------------------------------
+    with back_col:
 
-    coin_cols = st.columns(
-        5,
-        gap="small",
+        if st.button(
+            "← All markets"
+        ):
+
+            try:
+                st.query_params.clear()
+            except Exception:
+                pass
+
+            st.rerun()
+
+    # ============================================================
+    # CONTROLS
+    # ============================================================
+
+    control_col_1, control_col_2 = (
+        st.columns(2)
     )
 
-    for col, symbol in zip(
-        coin_cols,
-        SYMBOLS,
-    ):
+    with control_col_1:
 
-        pred = all_predictions[
-            all_predictions["symbol"]
-            == symbol
-        ]
-
-        mkt = all_market[
-            all_market["symbol"]
-            == symbol
-        ]
-
-        if pred.empty:
-
-            signal = "HOLD"
-            confidence = 0.0
-            probability_up = 0.0
-            price_text = "No data"
-
-        else:
-
-            row = pred.iloc[0]
-
-            signal = str(
-                row.get(
-                    "signal",
-                    "HOLD",
-                )
-            ).upper()
-
-            confidence = safe_float(
-                row.get(
-                    "ensemble_confidence",
-                    0,
-                )
-            )
-
-            probability_up = safe_float(
-                row.get(
-                    "ensemble_probability_up",
-                    0,
-                )
-            )
-
-            price_text = (
-                format_price(
-                    mkt.iloc[0][
-                        "close"
-                    ]
-                )
-                if not mkt.empty
-                else format_price(
-                    row.get(
-                        "close_price",
-                        0,
-                    )
-                )
-            )
-
-        confidence_percent = min(
-            max(
-                confidence * 100,
-                0,
-            ),
-            100,
+        interval_label = st.radio(
+            "Timeframe",
+            list(INTERVALS.keys()),
+            index=0,
+            horizontal=True,
         )
 
-        card_html = f"""
-        <a
-            class="coin-card-wrap"
-            href="?symbol={symbol}"
-        >
+    with control_col_2:
 
-            <div class="coin-card">
-
-                <div class="coin-card-top">
-
-                    <div class="coin-card-symbol">
-                        {symbol}
-                    </div>
-
-                    <div
-                        class="
-                            coin-badge
-                            {signal_class(signal)}
-                        "
-                    >
-                        {signal_text(signal)}
-                    </div>
-
-                </div>
-
-                <div class="coin-card-price">
-                    {price_text}
-                </div>
-
-                <div class="coin-card-meta">
-                    Confidence:
-                    <strong>
-                        {confidence:.2%}
-                    </strong>
-
-                    &nbsp;•&nbsp;
-
-                    UP:
-                    <strong>
-                        {probability_up:.2%}
-                    </strong>
-                </div>
-
-                <div class="confidence-track">
-
-                    <div
-                        class="confidence-fill"
-                        style="
-                            width:
-                            {confidence_percent:.1f}%;
-                        "
-                    >
-                    </div>
-
-                </div>
-
-            </div>
-
-        </a>
-        """
-
-        with col:
-
-            st.html(
-                card_html
-            )
-
-    # --------------------------------------------------------
-    # ENSEMBLE MARKET VIEW
-    # --------------------------------------------------------
-
-    st.html(
-        """
-        <div class="section">
-
-            <div class="section-row">
-
-                <div class="section-title">
-                    Ensemble market view
-                </div>
-
-                <div class="section-subtitle">
-                    Current UP probability by asset
-                </div>
-
-            </div>
-
-        </div>
-        """
-    )
-
-    if not all_predictions.empty:
-
-        market_view = (
-            all_predictions[
-                [
-                    "symbol",
-                    "ensemble_probability_up",
-                ]
-            ]
-            .copy()
+        history_limit = st.radio(
+            "History",
+            [100, 500, 1000, 5000],
+            index=1,
+            horizontal=True,
         )
 
-        market_view[
-            "ensemble_probability_up"
-        ] = pd.to_numeric(
-            market_view[
-                "ensemble_probability_up"
+    # ============================================================
+    # LOAD SELECTED COIN DATA
+    # ============================================================
+
+    market_history_data = api_get(
+        "/market/history",
+        params={
+            "symbol": selected_symbol,
+            "interval": INTERVALS[
+                interval_label
             ],
-            errors="coerce",
-        )
+            "limit": history_limit,
+        },
+        timeout=10,
+    )
 
-        market_fig = px.bar(
-            market_view,
-            x="symbol",
-            y="ensemble_probability_up",
-            text="ensemble_probability_up",
-            range_y=[0, 1],
-            template="plotly_dark",
-        )
+    prediction_history_data = api_get(
+        "/predictions/history",
+        params={
+            "symbol": selected_symbol,
+            "limit": min(
+                history_limit,
+                1000,
+            ),
+        },
+        timeout=10,
+    )
 
-        market_fig.update_traces(
-            texttemplate="%{text:.2%}",
-            textposition="outside",
-            marker_line_width=0,
-        )
+    market_history_df = to_dataframe(
+        market_history_data
+    )
 
-        market_fig.add_hline(
-            y=0.55,
-            line_dash="dash",
-            line_color="#f59e0b",
-            annotation_text="55%",
-        )
-
-        market_fig.add_hline(
-            y=0.50,
-            line_dash="dot",
-            line_color="#64748b",
-            annotation_text="50%",
-        )
-
-        market_fig = style_figure(
-            market_fig,
-            400,
-        )
-
-        market_fig.update_yaxes(
-            tickformat=".0%"
-        )
-
-        market_fig.update_layout(
-            showlegend=False
-        )
-
-        st.plotly_chart(
-            market_fig,
-            use_container_width=True,
-            config={
-                "displayModeBar": False,
-            },
-        )
-
-        # ----------------------------------------------------
-        # ALL COIN HISTORY
-        # ----------------------------------------------------
-
-        all_history_frames = []
-
-        for symbol in SYMBOLS:
-
-            symbol_history = (
-                get_prediction_history(
-                    symbol
-                )
+    prediction_history_df = (
+        normalize_history_timestamps(
+            to_dataframe(
+                prediction_history_data
             )
+        )
+    )
 
-            if symbol_history.empty:
-                continue
+    selected_market = latest_row_for_symbol(
+        market_latest_df,
+        selected_symbol,
+    )
 
-            all_history_frames.append(
-                symbol_history
-            )
+    selected_prediction = (
+        latest_row_for_symbol(
+            prediction_latest_df,
+            selected_symbol,
+        )
+    )
 
-        if all_history_frames:
+    current_price = pick(
+        selected_market or {},
+        "close_price",
+        "close",
+        default=None,
+    )
 
-            all_history = pd.concat(
-                all_history_frames,
-                ignore_index=True,
-            )
+    signal = get_prediction_signal(
+        selected_prediction
+    )
 
-            all_history = (
-                all_history
-                .dropna(
-                    subset=[
-                        "candle_time"
-                    ]
-                )
-                .sort_values(
-                    "candle_time"
-                )
-            )
+    probability_up = get_probability_up(
+        selected_prediction
+    )
 
-            # ------------------------------------------------
-            # CONFIDENCE HISTORY
-            # ------------------------------------------------
+    confidence = get_confidence(
+        selected_prediction
+    )
 
-            st.html(
-                """
-                <div class="section">
+    selected_model_version = pick(
+        selected_prediction or {},
+        "model_version",
+        default=model_version,
+    )
 
-                    <div class="section-row">
+    inference_latency = pick(
+        selected_prediction or {},
+        "inference_latency_ms",
+        default=None,
+    )
 
-                        <div class="section-title">
-                            Ensemble confidence over time
-                        </div>
+    # ============================================================
+    # HERO
+    # ============================================================
 
-                        <div class="section-subtitle">
-                            All monitored assets
-                        </div>
+    signal_css = signal_class(
+        signal
+    )
 
-                    </div>
+    st.html(
+        f"""
+        <div class="hero-card">
 
-                </div>
-                """
-            )
+            <div class="hero-symbol">
+                {selected_symbol}
+            </div>
 
-            confidence_fig = go.Figure()
+            <div class="hero-price">
+                {format_price(current_price)}
+            </div>
 
-            for symbol in SYMBOLS:
+            <div class="hero-signal">
+                Current ensemble signal:
 
-                symbol_data = all_history[
-                    all_history[
-                        "symbol"
-                    ] == symbol
+                <span class="{signal_css}">
+                    {signal}
+                </span>
+            </div>
+
+        </div>
+        """
+    )
+
+    # ============================================================
+    # KPIs
+    # ============================================================
+
+    k1, k2, k3, k4, k5 = (
+        st.columns(5)
+    )
+
+    with k1:
+
+        st.metric(
+            "Current price",
+            format_price(
+                current_price
+            ),
+        )
+
+    with k2:
+
+        st.metric(
+            "UP probability",
+            format_percent(
+                probability_up
+            ),
+        )
+
+    with k3:
+
+        st.metric(
+            "Confidence",
+            format_percent(
+                confidence
+            ),
+        )
+
+    with k4:
+
+        st.metric(
+            "Inference latency",
+            (
+                f"{float(inference_latency):.1f} ms"
+                if inference_latency is not None
+                else "—"
+            ),
+        )
+
+    with k5:
+
+        st.metric(
+            "Model version",
+            str(
+                selected_model_version
+            ),
+        )
+
+    # ============================================================
+    # MARKET HISTORY
+    # ============================================================
+
+    if not market_history_df.empty:
+
+        market_history_df = (
+            market_history_df.copy()
+        )
+
+        timestamp_column = None
+
+        for candidate in [
+            "open_time",
+            "open_time_ms",
+            "timestamp",
+            "time",
+        ]:
+
+            if (
+                candidate
+                in market_history_df.columns
+            ):
+
+                timestamp_column = candidate
+                break
+
+        if timestamp_column:
+
+            market_history_df[
+                "timestamp"
+            ] = normalize_datetime(
+                market_history_df[
+                    timestamp_column
                 ]
+            )
 
-                if symbol_data.empty:
-                    continue
-
-                confidence_fig.add_trace(
-                    go.Scatter(
-                        x=symbol_data[
-                            "candle_time"
-                        ],
-                        y=symbol_data[
-                            "ensemble_confidence"
-                        ],
-                        mode="lines",
-                        name=symbol,
-                        line=dict(
-                            width=2,
-                        ),
-                    )
+            market_history_df = (
+                market_history_df.dropna(
+                    subset=["timestamp"]
                 )
-
-            confidence_fig.add_hline(
-                y=0.55,
-                line_dash="dash",
-                line_color="#f59e0b",
-                annotation_text="55%",
             )
 
-            confidence_fig.update_yaxes(
-                range=[0, 1],
-                tickformat=".0%",
-                title="Confidence",
+        close_column = next(
+            (
+                column
+                for column in [
+                    "close_price",
+                    "close",
+                ]
+                if column
+                in market_history_df.columns
+            ),
+            None,
+        )
+
+        open_column = next(
+            (
+                column
+                for column in [
+                    "open_price",
+                    "open",
+                ]
+                if column
+                in market_history_df.columns
+            ),
+            None,
+        )
+
+        high_column = next(
+            (
+                column
+                for column in [
+                    "high_price",
+                    "high",
+                ]
+                if column
+                in market_history_df.columns
+            ),
+            None,
+        )
+
+        low_column = next(
+            (
+                column
+                for column in [
+                    "low_price",
+                    "low",
+                ]
+                if column
+                in market_history_df.columns
+            ),
+            None,
+        )
+
+        volume_column = next(
+            (
+                column
+                for column in [
+                    "volume",
+                ]
+                if column
+                in market_history_df.columns
+            ),
+            None,
+        )
+
+        # ========================================================
+        # PRICE CHART
+        # ========================================================
+
+        st.html(
+            """
+            <div class="section-row">
+
+                <div class="section-title">
+                    Price & technical view
+                </div>
+
+                <div class="section-helper">
+                    Live market candles
+                </div>
+
+            </div>
+            """
+        )
+
+        if all(
+            column is not None
+            for column in [
+                "timestamp",
+                open_column,
+                high_column,
+                low_column,
+                close_column,
+            ]
+        ):
+
+            candle_fig = go.Figure()
+
+            candle_fig.add_trace(
+                go.Candlestick(
+                    x=market_history_df[
+                        "timestamp"
+                    ],
+                    open=market_history_df[
+                        open_column
+                    ],
+                    high=market_history_df[
+                        high_column
+                    ],
+                    low=market_history_df[
+                        low_column
+                    ],
+                    close=market_history_df[
+                        close_column
+                    ],
+                    name=selected_symbol,
+                )
             )
 
-            confidence_fig = style_figure(
-                confidence_fig,
-                440,
+            close_numeric = pd.to_numeric(
+                market_history_df[
+                    close_column
+                ],
+                errors="coerce",
+            )
+
+            # EMA 20
+
+            ema_values = (
+                close_numeric
+                .ewm(
+                    span=20,
+                    adjust=False,
+                )
+                .mean()
+            )
+
+            candle_fig.add_trace(
+                go.Scatter(
+                    x=market_history_df[
+                        "timestamp"
+                    ],
+                    y=ema_values,
+                    mode="lines",
+                    name="EMA 20",
+                    line=dict(
+                        width=1.5,
+                    ),
+                )
+            )
+
+            # Bollinger Bands
+
+            rolling_mean = (
+                close_numeric
+                .rolling(
+                    window=20
+                )
+                .mean()
+            )
+
+            rolling_std = (
+                close_numeric
+                .rolling(
+                    window=20
+                )
+                .std()
+            )
+
+            upper_band = (
+                rolling_mean
+                + 2 * rolling_std
+            )
+
+            lower_band = (
+                rolling_mean
+                - 2 * rolling_std
+            )
+
+            candle_fig.add_trace(
+                go.Scatter(
+                    x=market_history_df[
+                        "timestamp"
+                    ],
+                    y=upper_band,
+                    mode="lines",
+                    name="Bollinger upper",
+                    line=dict(
+                        width=1,
+                        dash="dot",
+                    ),
+                )
+            )
+
+            candle_fig.add_trace(
+                go.Scatter(
+                    x=market_history_df[
+                        "timestamp"
+                    ],
+                    y=lower_band,
+                    mode="lines",
+                    name="Bollinger lower",
+                    line=dict(
+                        width=1,
+                        dash="dot",
+                    ),
+                )
+            )
+
+            candle_fig.update_layout(
+                height=560,
+                margin=dict(
+                    l=0,
+                    r=0,
+                    t=10,
+                    b=10,
+                ),
+                paper_bgcolor=(
+                    "rgba(0,0,0,0)"
+                ),
+                plot_bgcolor=(
+                    "rgba(0,0,0,0)"
+                ),
+                font=dict(
+                    color="#f8fafc"
+                ),
+                xaxis=dict(
+                    gridcolor=(
+                        "rgba(148,163,184,0.08)"
+                    ),
+                    tickfont=dict(
+                        color="#cbd5e1",
+                        size=11,
+                    ),
+                    rangeslider=dict(
+                        visible=False
+                    ),
+                ),
+                yaxis=dict(
+                    gridcolor=(
+                        "rgba(148,163,184,0.08)"
+                    ),
+                    tickfont=dict(
+                        color="#cbd5e1",
+                        size=11,
+                    ),
+                    title="Price",
+                    title_font=dict(
+                        color="#f8fafc",
+                        size=12,
+                    ),
+                ),
+                legend=dict(
+                    orientation="h",
+                    yanchor="bottom",
+                    y=1.02,
+                    xanchor="left",
+                    x=0,
+                    font=dict(
+                        color="#f8fafc",
+                        size=12,
+                    ),
+                ),
             )
 
             st.plotly_chart(
-                confidence_fig,
+                candle_fig,
                 use_container_width=True,
                 config={
                     "displayModeBar": False,
+                    "responsive": True,
                 },
             )
 
-            # ------------------------------------------------
-            # UP PROBABILITY HISTORY
-            # ------------------------------------------------
+        # ========================================================
+        # VOLUME
+        # ========================================================
+
+        if (
+            volume_column is not None
+            and "timestamp"
+            in market_history_df.columns
+        ):
+
+            volume_fig = go.Figure()
+
+            volume_fig.add_trace(
+                go.Bar(
+                    x=market_history_df[
+                        "timestamp"
+                    ],
+                    y=pd.to_numeric(
+                        market_history_df[
+                            volume_column
+                        ],
+                        errors="coerce",
+                    ),
+                    name="Volume",
+                    marker_color="#2563eb",
+                )
+            )
+
+            volume_fig.update_layout(
+                height=230,
+                margin=dict(
+                    l=0,
+                    r=0,
+                    t=5,
+                    b=5,
+                ),
+                paper_bgcolor=(
+                    "rgba(0,0,0,0)"
+                ),
+                plot_bgcolor=(
+                    "rgba(0,0,0,0)"
+                ),
+                font=dict(
+                    color="#f8fafc"
+                ),
+                xaxis=dict(
+                    gridcolor=(
+                        "rgba(148,163,184,0.08)"
+                    ),
+                    tickfont=dict(
+                        color="#cbd5e1",
+                        size=11,
+                    ),
+                ),
+                yaxis=dict(
+                    gridcolor=(
+                        "rgba(148,163,184,0.08)"
+                    ),
+                    tickfont=dict(
+                        color="#cbd5e1",
+                        size=11,
+                    ),
+                    title="Volume",
+                    title_font=dict(
+                        color="#f8fafc",
+                        size=12,
+                    ),
+                ),
+                showlegend=False,
+            )
+
+            st.plotly_chart(
+                volume_fig,
+                use_container_width=True,
+                config={
+                    "displayModeBar": False,
+                    "responsive": True,
+                },
+            )
+
+    # ============================================================
+    # MODEL CONSENSUS
+    # ============================================================
+
+    st.html(
+        """
+        <div class="section-row">
+
+            <div class="section-title">
+                Model consensus
+            </div>
+
+            <div class="section-helper">
+                CatBoost / GRU / ensemble
+            </div>
+
+        </div>
+        """
+    )
+
+    consensus_columns = st.columns(3)
+
+    catboost_probability = pick(
+        selected_prediction or {},
+        "catboost_probability_up",
+        default=None,
+    )
+
+    gru_probability = pick(
+        selected_prediction or {},
+        "gru_probability_up",
+        default=None,
+    )
+
+    ensemble_probability = pick(
+        selected_prediction or {},
+        "ensemble_probability_up",
+        default=None,
+    )
+
+    with consensus_columns[0]:
+
+        st.metric(
+            "CatBoost UP",
+            format_percent(
+                catboost_probability
+            ),
+        )
+
+    with consensus_columns[1]:
+
+        st.metric(
+            "GRU UP",
+            format_percent(
+                gru_probability
+            ),
+        )
+
+    with consensus_columns[2]:
+
+        st.metric(
+            "Ensemble UP",
+            format_percent(
+                ensemble_probability
+            ),
+        )
+
+    # ============================================================
+    # SELECTED COIN HISTORY
+    # ============================================================
+
+    if not prediction_history_df.empty:
+
+        # --------------------------------------------------------
+        # PROBABILITY
+        # --------------------------------------------------------
+
+        if (
+            "timestamp"
+            in prediction_history_df.columns
+            and "ensemble_probability_up"
+            in prediction_history_df.columns
+        ):
 
             st.html(
                 """
-                <div class="section">
+                <div class="section-row">
 
-                    <div class="section-row">
+                    <div class="section-title">
+                        Historical ensemble probability
+                    </div>
 
-                        <div class="section-title">
-                            Historical ensemble UP probability
-                        </div>
-
-                        <div class="section-subtitle">
-                            All monitored assets
-                        </div>
-
+                    <div class="section-helper">
+                        Recent model output
                     </div>
 
                 </div>
@@ -2432,56 +2703,75 @@ else:
 
             probability_fig = go.Figure()
 
-            for symbol in SYMBOLS:
-
-                symbol_data = all_history[
-                    all_history[
-                        "symbol"
-                    ] == symbol
-                ]
-
-                if symbol_data.empty:
-                    continue
-
-                probability_fig.add_trace(
-                    go.Scatter(
-                        x=symbol_data[
-                            "candle_time"
-                        ],
-                        y=symbol_data[
-                            "ensemble_probability_up"
-                        ],
-                        mode="lines",
-                        name=symbol,
-                        line=dict(
-                            width=2,
-                        ),
-                    )
+            probability_fig.add_trace(
+                go.Scatter(
+                    x=prediction_history_df[
+                        "timestamp"
+                    ],
+                    y=(
+                        pd.to_numeric(
+                            prediction_history_df[
+                                "ensemble_probability_up"
+                            ],
+                            errors="coerce",
+                        ) * 100
+                    ),
+                    mode="lines",
+                    name="UP probability",
+                    line=dict(
+                        width=2,
+                    ),
                 )
+            )
 
             probability_fig.add_hline(
-                y=0.50,
+                y=50,
                 line_dash="dot",
-                line_color="#64748b",
-                annotation_text="50%",
+                line_color="rgba(148,163,184,0.40)",
+                annotation_text="50% neutral",
+                annotation_position="right",
+                annotation_font=dict(
+                    color="#cbd5e1",
+                    size=11,
+                ),
             )
 
-            probability_fig.add_hline(
-                y=0.55,
-                line_dash="dash",
-                line_color="#f59e0b",
-                annotation_text="55%",
-            )
-
-            probability_fig.update_yaxes(
-                range=[0, 1],
-                tickformat=".0%",
-                title="UP probability",
-            )
-
-            probability_fig = style_figure(
-                probability_fig,
-                440,
+            probability_fig.update_layout(
+                height=310,
+                margin=dict(
+                    l=0,
+                    r=0,
+                    t=20,
+                    b=5,
+                ),
+                paper_bgcolor=(
+                    "rgba(0,0,0,0)"
+                ),
+                plot_bgcolor=(
+                    "rgba(0,0,0,0)"
+                ),
+                font=dict(
+                    color="#f8fafc"
+                ),
+                xaxis=dict(
+                    gridcolor=(
+                        "rgba(148,163,184,0.08)"
+                    ),
+                    tickfont=dict(
+                        color="#cbd5e1"
+                    ),
+                ),
+                yaxis=dict(
+                    title="UP probability (%)",
+                    range=[0, 100],
+                    tickfont=dict(
+                        color="#cbd5e1"
+                    ),
+                    title_font=dict(
+                        color="#f8fafc"
+                    ),
+                ),
+                showlegend=False,
             )
 
             st.plotly_chart(
@@ -2489,372 +2779,319 @@ else:
                 use_container_width=True,
                 config={
                     "displayModeBar": False,
+                    "responsive": True,
                 },
             )
 
-    # --------------------------------------------------------
-    # SIGNAL DISTRIBUTION
-    # --------------------------------------------------------
+        # --------------------------------------------------------
+        # CONFIDENCE
+        # --------------------------------------------------------
 
-    st.html(
-        """
-        <div class="section">
+        if (
+            "timestamp"
+            in prediction_history_df.columns
+            and "ensemble_confidence"
+            in prediction_history_df.columns
+        ):
 
+            st.html(
+                """
+                <div class="section-row">
+
+                    <div class="section-title">
+                        Prediction confidence
+                    </div>
+
+                    <div class="section-helper">
+                        Confidence versus 55% action threshold
+                    </div>
+
+                </div>
+                """
+            )
+
+            confidence_fig = go.Figure()
+
+            confidence_fig.add_trace(
+                go.Scatter(
+                    x=prediction_history_df[
+                        "timestamp"
+                    ],
+                    y=(
+                        pd.to_numeric(
+                            prediction_history_df[
+                                "ensemble_confidence"
+                            ],
+                            errors="coerce",
+                        ) * 100
+                    ),
+                    mode="lines",
+                    name="Confidence",
+                    line=dict(
+                        width=2,
+                    ),
+                )
+            )
+
+            confidence_fig.add_hline(
+                y=55,
+                line_dash="dot",
+                line_color="rgba(245,158,11,0.65)",
+                annotation_text="55% action threshold",
+                annotation_position="right",
+                annotation_font=dict(
+                    color="#fbbf24",
+                    size=11,
+                ),
+            )
+
+            confidence_fig.update_layout(
+                height=310,
+                margin=dict(
+                    l=0,
+                    r=0,
+                    t=20,
+                    b=5,
+                ),
+                paper_bgcolor=(
+                    "rgba(0,0,0,0)"
+                ),
+                plot_bgcolor=(
+                    "rgba(0,0,0,0)"
+                ),
+                font=dict(
+                    color="#f8fafc"
+                ),
+                xaxis=dict(
+                    gridcolor=(
+                        "rgba(148,163,184,0.08)"
+                    ),
+                    tickfont=dict(
+                        color="#cbd5e1"
+                    ),
+                ),
+                yaxis=dict(
+                    title="Confidence (%)",
+                    range=[45, 65],
+                    tickfont=dict(
+                        color="#cbd5e1"
+                    ),
+                    title_font=dict(
+                        color="#f8fafc"
+                    ),
+                ),
+                showlegend=False,
+            )
+
+            st.plotly_chart(
+                confidence_fig,
+                use_container_width=True,
+                config={
+                    "displayModeBar": False,
+                    "responsive": True,
+                },
+            )
+
+        # ========================================================
+        # TABLE
+        # ========================================================
+
+        st.html(
+            """
             <div class="section-row">
 
                 <div class="section-title">
-                    Signal distribution
+                    Recent predictions
                 </div>
 
-                <div class="section-subtitle">
-                    Current ensemble decisions
-                </div>
-
-            </div>
-
-        </div>
-        """
-    )
-
-    if not all_predictions.empty:
-
-        signal_counts = (
-            all_predictions[
-                "signal"
-            ]
-            .astype(str)
-            .str.upper()
-            .value_counts()
-            .reset_index()
-        )
-
-        signal_counts.columns = [
-            "Signal",
-            "Count",
-        ]
-
-        signal_fig = px.pie(
-            signal_counts,
-            names="Signal",
-            values="Count",
-            hole=0.62,
-            template="plotly_dark",
-        )
-
-        signal_fig.update_layout(
-            height=380,
-            margin=dict(
-                l=15,
-                r=15,
-                t=15,
-                b=15,
-            ),
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            legend=dict(
-                orientation="h",
-                yanchor="bottom",
-                y=-0.05,
-                xanchor="center",
-                x=0.5,
-            ),
-        )
-
-        st.plotly_chart(
-            signal_fig,
-            use_container_width=True,
-            config={
-                "displayModeBar": False,
-            },
-        )
-
-
-# ============================================================
-# MLOPS HEALTH
-# ============================================================
-
-st.html(
-    """
-    <div class="section">
-
-        <div class="section-row">
-
-            <div class="section-title">
-                MLOps health
-            </div>
-
-            <div class="section-subtitle">
-                Pipeline-wide monitoring
-            </div>
-
-        </div>
-
-    </div>
-    """
-)
-
-
-freshness = str(
-    monitoring.get(
-        "data_freshness_status",
-        "UNKNOWN",
-    )
-).upper()
-
-prediction_status = str(
-    monitoring.get(
-        "prediction_completeness_status",
-        "UNKNOWN",
-    )
-).upper()
-
-sequence_status = str(
-    monitoring.get(
-        "sequence_continuity_status",
-        "UNKNOWN",
-    )
-).upper()
-
-data_age = safe_float(
-    monitoring.get(
-        "data_age_seconds",
-        0,
-    )
-)
-
-mean_latency = safe_float(
-    monitoring.get(
-        "mean_inference_latency_ms",
-        0,
-    )
-)
-
-mean_confidence = safe_float(
-    monitoring.get(
-        "mean_confidence",
-        0,
-    )
-)
-
-feature_z_max = safe_float(
-    monitoring.get(
-        "feature_abs_z_max",
-        0,
-    )
-)
-
-feature_z_percent = safe_float(
-    monitoring.get(
-        "feature_abs_z_gt3_pct",
-        0,
-    )
-)
-
-
-def health_value(
-    status: str,
-) -> str:
-
-    if status == "PASS":
-
-        return (
-            '<span class="healthy">'
-            "● HEALTHY"
-            "</span>"
-        )
-
-    if status in {
-        "WARN",
-        "WARNING",
-    }:
-
-        return (
-            '<span class="warning">'
-            "● WARNING"
-            "</span>"
-        )
-
-    if status == "FAIL":
-
-        return (
-            '<span class="failed">'
-            "● FAILED"
-            "</span>"
-        )
-
-    return html.escape(
-        status
-    )
-
-
-health_items = [
-    (
-        "Data freshness",
-        health_value(
-            freshness
-        ),
-    ),
-    (
-        "Predictions",
-        health_value(
-            prediction_status
-        ),
-    ),
-    (
-        "Sequence",
-        health_value(
-            sequence_status
-        ),
-    ),
-    (
-        "Feature drift",
-        f"Max |z| {feature_z_max:.2f}",
-    ),
-    (
-        "Inference",
-        f"{mean_latency:.1f} ms",
-    ),
-]
-
-
-health_cols = st.columns(5)
-
-for col, (
-    label,
-    value,
-) in zip(
-    health_cols,
-    health_items,
-):
-
-    with col:
-
-        st.html(
-            f"""
-            <div class="health-card">
-
-                <div class="health-label">
-                    {label}
-                </div>
-
-                <div style="
-                    margin-top:.35rem;
-                    color:#e2e8f0;
-                    font-size:.9rem;
-                    font-weight:800;
-                ">
-                    {value}
+                <div class="section-helper">
+                    Latest model decisions
                 </div>
 
             </div>
             """
         )
 
-
-# ============================================================
-# HEALTH DETAILS
-# ============================================================
-
-detail_cols = st.columns(4)
-
-with detail_cols[0]:
-
-    st.metric(
-        "Data age",
-        f"{data_age:.1f}s",
-    )
-
-with detail_cols[1]:
-
-    st.metric(
-        "Mean confidence",
-        f"{mean_confidence:.2%}",
-    )
-
-with detail_cols[2]:
-
-    st.metric(
-        "Feature |z| > 3",
-        f"{feature_z_percent:.2f}%",
-    )
-
-with detail_cols[3]:
-
-    model_version = monitoring.get(
-        "model_version",
-        MODEL_VERSION_FALLBACK,
-    )
-
-    st.metric(
-        "Model version",
-        str(
-            model_version
-        ).replace(
-            "_",
-            " ",
-        ),
-    )
-
-
-# ============================================================
-# FOOTER
-# ============================================================
-
-latest_timestamp = None
-
-if (
-    not all_predictions.empty
-    and "candle_time"
-    in all_predictions.columns
-):
-
-    latest_timestamp = (
-        all_predictions[
-            "candle_time"
-        ].max()
-    )
-
-
-if pd.notna(
-    latest_timestamp
-):
-
-    latest_text = (
-        pd.Timestamp(
-            latest_timestamp
-        ).strftime(
-            "%Y-%m-%d %H:%M:%S UTC"
+        table_df = (
+            prediction_history_df.copy()
         )
+
+        preferred_columns = [
+            "timestamp",
+            "ensemble_probability_up",
+            "ensemble_probability_down",
+            "ensemble_confidence",
+            "raw_prediction",
+            "signal",
+            "actionable",
+            "inference_latency_ms",
+            "model_version",
+        ]
+
+        display_columns = [
+            column
+            for column in preferred_columns
+            if column
+            in table_df.columns
+        ]
+
+        if display_columns:
+
+            table_df = table_df[
+                display_columns
+            ].copy()
+
+            table_df = table_df.rename(
+                columns={
+                    "timestamp": "Time",
+                    "ensemble_probability_up": "UP probability",
+                    "ensemble_probability_down": "DOWN probability",
+                    "ensemble_confidence": "Confidence",
+                    "raw_prediction": "Raw prediction",
+                    "signal": "Signal",
+                    "actionable": "Actionable",
+                    "inference_latency_ms": "Latency (ms)",
+                    "model_version": "Model",
+                }
+            )
+
+            for column in [
+                "UP probability",
+                "DOWN probability",
+                "Confidence",
+            ]:
+
+                if column in table_df.columns:
+
+                    values = pd.to_numeric(
+                        table_df[column],
+                        errors="coerce",
+                    )
+
+                    table_df[column] = (
+                        values
+                        .mul(100)
+                        .round(2)
+                        .map(
+                            lambda x:
+                            f"{x:.2f}%"
+                            if pd.notna(x)
+                            else "—"
+                        )
+                    )
+
+            st.dataframe(
+                table_df
+                .tail(20)
+                .iloc[::-1],
+                use_container_width=True,
+                hide_index=True,
+            )
+
+    # ============================================================
+    # SELECTED COIN MLOPS HEALTH
+    # ============================================================
+
+    st.html(
+        """
+        <div class="section-row">
+
+            <div class="section-title">
+                MLOps health
+            </div>
+
+            <div class="section-helper">
+                Production pipeline telemetry
+            </div>
+
+        </div>
+        """
     )
 
-else:
+    health_cols = st.columns(6)
 
-    latest_text = "Unavailable"
+    with health_cols[0]:
 
-
-st.html(
-    f"""
-    <div class="footer">
-
-        Latest prediction:
-        {latest_text}
-
-        &nbsp;•&nbsp;
-
-        Model:
-        {html.escape(
+        st.metric(
+            "Data freshness",
             str(
-                monitoring.get(
-                    "model_version",
-                    MODEL_VERSION_FALLBACK,
+                pick(
+                    monitoring_latest_row,
+                    "data_freshness_status",
+                    default="UNKNOWN",
                 )
-            )
-        )}
+            ),
+        )
 
-        &nbsp;•&nbsp;
+    with health_cols[1]:
 
-        FastAPI connected
+        st.metric(
+            "Sequence",
+            str(
+                pick(
+                    monitoring_latest_row,
+                    "sequence_continuity_status",
+                    default="UNKNOWN",
+                )
+            ),
+        )
 
-    </div>
-    """
-)
+    with health_cols[2]:
+
+        st.metric(
+            "Predictions",
+            str(
+                pick(
+                    monitoring_latest_row,
+                    "prediction_completeness_status",
+                    default="UNKNOWN",
+                )
+            ),
+        )
+
+    with health_cols[3]:
+
+        st.metric(
+            "Symbols",
+            str(
+                pick(
+                    monitoring_latest_row,
+                    "symbol_count",
+                    default="—",
+                )
+            ),
+        )
+
+    with health_cols[4]:
+
+        latest_latency = pick(
+            monitoring_latest_row,
+            "mean_inference_latency_ms",
+            default=None,
+        )
+
+        st.metric(
+            "Mean inference",
+            (
+                f"{float(latest_latency):.1f} ms"
+                if latest_latency is not None
+                else "—"
+            ),
+        )
+
+    with health_cols[5]:
+
+        latest_drift = pick(
+            monitoring_latest_row,
+            "feature_abs_z_gt3_pct",
+            default=None,
+        )
+
+        st.metric(
+            "|z| > 3",
+            (
+                f"{float(latest_drift):.2f}%"
+                if latest_drift is not None
+                else "—"
+            ),
+        )
