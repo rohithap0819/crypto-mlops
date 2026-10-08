@@ -20,6 +20,8 @@
 
 [![Live Demo](https://img.shields.io/badge/🚀%20Live%20Demo-Streamlit-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white)](https://crypto-mlops.streamlit.app/)
 
+[![FastAPI](https://img.shields.io/badge/⚡%20FastAPI-API-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://crypto-mlops.onrender.com/)
+
 <br>
 
 **5 cryptocurrencies • 1-minute streaming • 61 features • CatBoost + GRU • live monitoring**
