@@ -1,0 +1,60 @@
+name: Crypto MLOps CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    name: Test Python Project
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements-docker.txt
+          pip install pytest
+
+      - name: Compile Python files
+        run: |
+          python -m compileall src
+
+      - name: Check API import
+        run: |
+          python -c "from src.api.main import app; print('FastAPI import: PASS')"
+
+      - name: Check feature builder import
+        run: |
+          python -c "from src.features.live_feature_builder import build_live_features; print('Feature builder import: PASS')"
+
+      - name: Check model modules
+        run: |
+          python -c "from src.models.binary_sequence_models import BinaryGRU; print('Sequence model import: PASS')"
+
+  docker:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          docker build -t crypto-mlops:ci .
