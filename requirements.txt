@@ -29,3 +29,8 @@ mlflow
 optuna
 torch==2.14.0+cpu
 httpx2
+streamlit
+pandas
+numpy
+plotly
+requests
