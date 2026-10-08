@@ -1,0 +1,118 @@
+groups:
+
+  - name: crypto-mlops-alerts
+
+    rules:
+
+      # ========================================================
+      # API HEALTH
+      # ========================================================
+
+      - alert: CryptoAPIUnavailable
+
+        expr: crypto_api_up == 0
+
+        for: 1m
+
+        labels:
+          severity: critical
+          service: api
+
+        annotations:
+          summary: "Crypto MLOps API is unavailable"
+          description: "The FastAPI service has reported crypto_api_up=0 for more than 1 minute."
+
+
+      # ========================================================
+      # INFERENCE LATENCY
+      # ========================================================
+
+      - alert: HighInferenceLatency
+
+        expr: crypto_mean_inference_latency_ms > 1000
+
+        for: 2m
+
+        labels:
+          severity: warning
+          service: inference
+
+        annotations:
+          summary: "Inference latency is high"
+          description: "Mean inference latency has exceeded 1000 ms for more than 2 minutes."
+
+
+      # ========================================================
+      # FEATURE DRIFT
+      # ========================================================
+
+      - alert: FeatureDriftDetected
+
+        expr: crypto_feature_abs_z_gt3_pct > 5
+
+        for: 2m
+
+        labels:
+          severity: warning
+          service: monitoring
+
+        annotations:
+          summary: "Feature drift detected"
+          description: "More than 5 percent of monitored features have an absolute z-score greater than 3."
+
+
+      # ========================================================
+      # DATA FRESHNESS
+      # ========================================================
+
+      - alert: CryptoDataStale
+
+        expr: crypto_data_freshness_status == 0
+
+        for: 1m
+
+        labels:
+          severity: critical
+          service: ingestion
+
+        annotations:
+          summary: "Crypto market data is stale"
+          description: "The live data freshness check has failed for more than 1 minute."
+
+
+      # ========================================================
+      # SEQUENCE CONTINUITY
+      # ========================================================
+
+      - alert: SequenceContinuityFailure
+
+        expr: crypto_sequence_continuity_status == 0
+
+        for: 1m
+
+        labels:
+          severity: critical
+          service: inference
+
+        annotations:
+          summary: "Sequence continuity check failed"
+          description: "The live inference sequence contains a continuity problem."
+
+
+      # ========================================================
+      # PREDICTION COMPLETENESS
+      # ========================================================
+
+      - alert: PredictionCompletenessFailure
+
+        expr: crypto_prediction_completeness_status == 0
+
+        for: 1m
+
+        labels:
+          severity: critical
+          service: inference
+
+        annotations:
+          summary: "Prediction completeness check failed"
+          description: "The expected prediction set is incomplete."
