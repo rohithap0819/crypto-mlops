@@ -28,3 +28,4 @@ scikit-learn
 mlflow 
 optuna
 torch==2.14.0+cpu
+httpx2

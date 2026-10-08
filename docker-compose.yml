@@ -199,6 +199,64 @@ services:
       - crypto-mlops
 
 
+
+
+  # ==========================================================
+  # 5. PROMETHEUS
+  # ==========================================================
+
+  prometheus:
+    image: prom/prometheus:latest
+
+    container_name: crypto-mlops-prometheus
+
+    restart: unless-stopped
+
+    depends_on:
+      api:
+        condition: service_healthy
+
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+
+    ports:
+      - "9090:9090"
+
+    networks:
+      - crypto-mlops
+
+
+  # ==========================================================
+  # 6. GRAFANA
+  # ==========================================================
+
+  grafana:
+    image: grafana/grafana:latest
+
+    container_name: crypto-mlops-grafana
+
+    restart: unless-stopped
+
+    depends_on:
+      prometheus:
+        condition: service_started
+
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+
+    ports:
+      - "3000:3000"
+
+    networks:
+      - crypto-mlops
+
 # ============================================================
 # NETWORK
 # ============================================================
@@ -218,3 +276,9 @@ volumes:
   live_db:
     name: crypto-mlops-live-db
     external: true
+
+  prometheus_data:
+    name: crypto-mlops-prometheus-data
+
+  grafana_data:
+    name: crypto-mlops-grafana-data
