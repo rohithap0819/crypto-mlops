@@ -20,10 +20,23 @@ services:
     restart: unless-stopped
 
     volumes:
-      - ./data:/app/data
+      - live_db:/app/data
 
     environment:
       PYTHONUNBUFFERED: "1"
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import sqlite3; c=sqlite3.connect('/app/data/crypto_live.db', timeout=5); c.execute('SELECT COUNT(*) FROM market_klines_1m').fetchone(); c.close()"
+        ]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
 
     networks:
       - crypto-mlops
@@ -49,15 +62,30 @@ services:
     restart: unless-stopped
 
     depends_on:
-      - ingestion
+      ingestion:
+        condition: service_healthy
 
     volumes:
-      - ./data:/app/data
+      - live_db:/app/data
+      - ./data/processed:/app/data/processed:ro
       - ./models:/app/models
       - ./reports:/app/reports
 
     environment:
       PYTHONUNBUFFERED: "1"
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import sqlite3; c=sqlite3.connect('/app/data/crypto_live.db', timeout=5); c.execute('SELECT COUNT(*) FROM monitoring_metrics').fetchone(); c.close()"
+        ]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
     networks:
       - crypto-mlops
@@ -86,8 +114,12 @@ services:
 
     restart: unless-stopped
 
+    depends_on:
+      inference:
+        condition: service_healthy
+
     volumes:
-      - ./data:/app/data
+      - live_db:/app/data
       - ./models:/app/models
 
     environment:
@@ -95,6 +127,19 @@ services:
 
     ports:
       - "8000:8000"
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; r=urllib.request.urlopen('http://127.0.0.1:8000/monitoring/latest', timeout=5); assert r.status == 200"
+        ]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
     networks:
       - crypto-mlops
@@ -127,7 +172,8 @@ services:
     restart: unless-stopped
 
     depends_on:
-      - api
+      api:
+        condition: service_healthy
 
     environment:
       PYTHONUNBUFFERED: "1"
@@ -135,6 +181,19 @@ services:
 
     ports:
       - "8501:8501"
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; r=urllib.request.urlopen('http://127.0.0.1:8501/_stcore/health', timeout=5); assert r.status == 200"
+        ]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
     networks:
       - crypto-mlops
@@ -148,3 +207,14 @@ networks:
 
   crypto-mlops:
     driver: bridge
+
+
+# ============================================================
+# VOLUMES
+# ============================================================
+
+volumes:
+
+  live_db:
+    name: crypto-mlops-live-db
+    external: true
